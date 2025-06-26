@@ -1,0 +1,38 @@
+import express from "express";
+import multer from "multer";
+import {
+     productLists,
+      uploadCsv, getProductDetails, getBrandSummary, getLatestProducts, getLatestWinterProducts, GetFilterTyres, getSearchSuggestions } from "./product.controller.js";
+import { getImportProgress } from "./importAWINCsv.js";
+const upload = multer({ dest: "uploads/" });
+
+const router = express.Router();
+
+router.get("/product-lists", productLists);
+
+
+router.post("/upload-csv", upload.single("file"), uploadCsv);
+
+// New: import progress
+router.get("/upload-csv-progress", getImportProgress);
+
+// New: Products details data
+router.get("/product-details/:productId", getProductDetails);
+
+// New: Brand summary
+router.get("/brand-summary", getBrandSummary);
+
+// New: Latest products
+router.get("/latest-products", getLatestProducts);
+
+// New: Latest winter products
+router.get("/sessions-products", getLatestWinterProducts);
+
+// New: Filter tyres
+router.get("/filter-tyres", GetFilterTyres);
+
+// New: Search suggestions
+router.get("/suggestions", getSearchSuggestions);
+
+
+export default router;

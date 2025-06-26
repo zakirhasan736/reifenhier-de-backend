@@ -1,0 +1,1 @@
+// AffiliateCloak.js
