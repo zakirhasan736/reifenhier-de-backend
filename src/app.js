@@ -9,10 +9,11 @@ import { connectDB } from './config/db.js';
 // import errorHandler from './middleware/errorHandler.js';
 
 // Route imports
-// import adminRoutes from './api/admin/admin.routes.js';
+import adminRoutes from './api/admin/admin.routes.js';
 import authRoutes from './api/auth/auth.routes.js';
 import productRoutes from './api/product/product.routes.js';
-// import vendorRoutes from './api/vendors/vendor.routes.js';
+import vendorRoutes from './api/vendors/vendor.routes.js';
+import faqRoutes from './api/faq/faq.routes.js';
 // import tyreRoutes from './api/tyres/tyre.routes.js';
 // import offerRoutes from './api/offers/offer.routes.js';
 // import blogRoutes from './api/blogs/blog.routes.js';
@@ -31,10 +32,11 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // Routes
-// app.use('/api/admin', adminRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
-// app.use('/api/vendors', vendorRoutes);
+app.use('/api/vendors', vendorRoutes);
+app.use('/api/faq', faqRoutes);
 // app.use('/api/tyres', tyreRoutes);
 // app.use('/api/offers', offerRoutes);
 // app.use('/api/blogs', blogRoutes);

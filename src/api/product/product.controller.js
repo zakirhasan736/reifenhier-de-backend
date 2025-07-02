@@ -1,252 +1,10 @@
+import FeaturedSettings from '../../models/FeaturedSettings.js';
 import Product from '../../models/product.js';
 import { startCsvImportAsync } from "./importAWINCsv.js";
-
+import Redis from 'ioredis';
+import hash from 'object-hash';
 
 // In your product controller file
-
-export const productLists = async (req, res) => {
-    try {
-        const {
-            page = 1,
-            limit = 12,
-            sort = 'createdAt',
-            order = 'desc',
-            mode,
-            category,
-            brand,
-            width,
-            height,
-            diameter,
-            speedIndex,
-            lastIndex,
-            noise,
-            fuelClass,
-            wetGrip,
-        } = req.query;
-
-        const query = {};
-
-        // Apply filters to the query (for product filtering)
-        if (category) query.merchant_product_third_category = category;
-        if (brand) query.brand_name = brand;
-        if (width) query.width = width;
-        if (height) query.height = height;
-        if (diameter) query.diameter = diameter;
-        if (speedIndex) query.speedIndex = speedIndex;
-        if (lastIndex) query.lastIndex = lastIndex;
-        if (noise) query.noise_class = noise;
-        if (fuelClass) query.fuel_class = fuelClass;
-        if (wetGrip) query.wet_grip = wetGrip;
-
-              
-                // Utility functions
-                const getPriceRange = async () => {
-                    const prices = await Product.find(query).select('search_price');
-                    const validPrices = prices.map(p => parseFloat(p.search_price)).filter(p => !isNaN(p));
-                    const min = validPrices.length ? Math.min(...validPrices) : 0;
-                    const max = validPrices.length ? Math.max(...validPrices) : 0;
-                    return { minPrices: min, maxPrices: max };
-                };
-
-                // Get product counts for filters
-                const getCategoryCounts = async () => {
-                    const categoryMatch = { ...query };
-                    delete categoryMatch.merchant_product_third_category;
-                    const products = await Product.find(categoryMatch, 'merchant_product_third_category');
-                    const counts = {};
-                    products.forEach(p => {
-                        const cat = p.merchant_product_third_category || "Unknown";
-                        counts[cat] = (counts[cat] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-                const getBrandCounts = async () => {
-                    const brandMatch = { ...query };
-                    delete brandMatch.brand_name;
-                    const products = await Product.find(brandMatch, 'brand_name');
-                    const counts = {};
-                    products.forEach(p => {
-                        const brand = p.brand_name || "Unknown";
-                        counts[brand] = (counts[brand] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-                const getWidthCounts = async () => {
-                    const widthMatch = { ...query };
-                    delete widthMatch.width;
-                    const products = await Product.find(widthMatch, 'width');
-                    const counts = {};
-                    products.forEach(p => {
-                        const width = p.width || '';
-                        counts[width] = (counts[width] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-                // Get height counts
-                const getHeightCounts = async () => {
-                    const heightMatch = { ...query };
-                    delete heightMatch.height;
-                    const products = await Product.find(heightMatch, 'height');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const height = p.height || '';
-                        counts[height] = (counts[height] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-                // Get diameter counts
-                const getDiameterCounts = async () => {
-                    const diameterMatch = { ...query };
-                    delete diameterMatch.diameter;
-                    const products = await Product.find(diameterMatch, 'diameter');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const diameter = p.diameter || '';
-                        counts[diameter] = (counts[diameter] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-
-                // Get speed index counts using extractIndexesFromProductName
-                const getSpeedIndexCounts = async () => {
-                    const speedMatch = { ...query };
-                    delete speedMatch.speedIndex;
-                    const products = await Product.find(speedMatch, 'speedIndex');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const speedIndex = p.speedIndex || '';
-                        if (speedIndex) {
-                            counts[speedIndex] = (counts[speedIndex] || 0) + 1;
-                        }
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-                // Get last index counts using extractIndexesFromProductName
-                const getLastIndexCounts = async () => {
-                    const lastIndexMatch = { ...query };
-                    delete lastIndexMatch.lastIndex;
-                    const products = await Product.find(lastIndexMatch, 'lastIndex');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const lastIndex = p.lastIndex || '';
-                        if (lastIndex) {
-                            counts[lastIndex] = (counts[lastIndex] || 0) + 1;
-                        }
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-              };
-
-                // Get noise counts
-                const getNoiseCounts = async () => {
-                    const noiseMatch = { ...query };
-                    delete noiseMatch.noise_class;
-                    const products = await Product.find(noiseMatch, 'noise_class');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const noise = p.noise_class || "Unknown";
-                        counts[noise] = (counts[noise] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-                // Get fuel class counts
-                const getFuelClassCounts = async () => {
-                    const fuelClassMatch = { ...query };
-                    delete fuelClassMatch.fuel_class;
-                    const products = await Product.find(fuelClassMatch, 'fuel_class');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const fuelClass = p.fuel_class || "Unknown";
-                        counts[fuelClass] = (counts[fuelClass] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-                // Get wet grip counts
-                const getWetGripCounts = async () => {
-                    const wetGripMatch = { ...query };
-                    delete wetGripMatch.wet_grip;
-                    const products = await Product.find(wetGripMatch, 'wet_grip');
-                    const counts = {};
-                    products.forEach((p) => {
-                        const wetGrip = p.wet_grip || "Unknown";
-                        counts[wetGrip] = (counts[wetGrip] || 0) + 1;
-                    });
-                    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-                };
-
-        // Fetch product list with pagination
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const sortOption = { [sort]: order === 'asc' ? 1 : -1 };
-
-        const [total, products, priceRange] = await Promise.all([
-            Product.countDocuments(query),
-            Product.find(query).sort(sortOption).skip(skip).limit(+limit).select('brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price'),
-            getPriceRange(),
-        ]);
-
-        // Get the filter counts in parallel
-        const [
-            categories,
-            brands,
-            widths,
-            heights,
-            diameters,
-            speedIndexes,
-            lastIndexes,
-            noises,
-            fuelClasses,
-            wetGrips,
-        ] = await Promise.all([
-            getCategoryCounts(),
-            getBrandCounts(),
-            getWidthCounts(),
-            getHeightCounts(),
-            getDiameterCounts(),
-            getSpeedIndexCounts(),
-            getLastIndexCounts(),
-            getNoiseCounts(),
-            getFuelClassCounts(),
-            getWetGripCounts(),
-        ]);
-
-        return res.status(200).json({
-            total,
-            products,
-            ...priceRange,
-
-            // widths,
-            // heights,
-            // diameters,
-            // speedIndexes,
-            // lastIndexes,
-            // noises,
-            // fuelClasses,
-            // wetGrips,
-            filterGroups: {
-                categories,
-                brands,
-                widths,
-                heights,
-                diameters,
-                speedIndexes,
-                lastIndexes,
-                noises,
-                fuelClasses,
-                wetGrips,
-            },
-        });
-
-    } catch (err) {
-        console.error('Error in productLists:', err);
-        return res.status(500).json({ message: 'Server error' });
-    }
-};
 // export const productLists = async (req, res) => {
 //     try {
 //         const {
@@ -254,6 +12,7 @@ export const productLists = async (req, res) => {
 //             limit = 12,
 //             sort = 'createdAt',
 //             order = 'desc',
+//             mode,
 //             category,
 //             brand,
 //             width,
@@ -264,210 +23,514 @@ export const productLists = async (req, res) => {
 //             noise,
 //             fuelClass,
 //             wetGrip,
-//             minPrice = 0,
-//             maxPrice = 10000,
 //         } = req.query;
 
-//         const match = {
-//             ...(category && { merchant_product_third_category: category }),
-//             ...(brand && { brand_name: brand }),
-//             ...(width && { width }),
-//             ...(height && { height }),
-//             ...(diameter && { diameter }),
-//             ...(speedIndex && { speedIndex }),
-//             ...(lastIndex && { lastIndex }),
-//             ...(noise && { noise_class: noise }),
-//             ...(fuelClass && { fuel_class: fuelClass }),
-//             ...(wetGrip && { wet_grip: wetGrip }),
-//             search_price: {
-//                 $gte: parseFloat(minPrice),
-//                 $lte: parseFloat(maxPrice),
-//             },
-//         };
+//         const query = {};
 
-//         const pipeline = [
-//             { $match: match },
-//             {
-//                 $facet: {
-//                     paginatedResults: [
-//                         { $sort: { [sort]: order === 'asc' ? 1 : -1 } },
-//                         { $skip: (page - 1) * parseInt(limit) },
-//                         { $limit: parseInt(limit) },
-//                     ],
-//                     totalCount: [{ $count: 'count' }],
-//                     priceBounds: [
-//                         {
-//                             $group: {
-//                                 _id: null,
-//                                 min: { $min: '$search_price' },
-//                                 max: { $max: '$search_price' },
-//                             },
-//                         },
-//                     ],
-//                     brands: [
-//                         { $group: { _id: '$brand_name', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     categories: [
-//                         { $group: { _id: '$merchant_product_third_category', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     widths: [
-//                         { $group: { _id: '$width', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     heights: [
-//                         { $group: { _id: '$height', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     diameters: [
-//                         { $group: { _id: '$diameter', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     speedIndexes: [
-//                         { $group: { _id: '$speedIndex', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     lastIndexes: [
-//                         { $group: { _id: '$lastIndex', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     noises: [
-//                         { $group: { _id: '$noise_class', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     fuelClasses: [
-//                         { $group: { _id: '$fuel_class', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                     wetGrips: [
-//                         { $group: { _id: '$wet_grip', count: { $sum: 1 } } },
-//                         { $project: { name: '$_id', count: 1, _id: 0 } },
-//                     ],
-//                 },
-//             },
-//         ];
+//         // Apply filters to the query (for product filtering)
+//         if (category) query.merchant_product_third_category = category;
+//         if (brand) query.brand_name = brand;
+//         if (width) query.width = width;
+//         if (height) query.height = height;
+//         if (diameter) query.diameter = diameter;
+//         if (speedIndex) query.speedIndex = speedIndex;
+//         if (lastIndex) query.lastIndex = lastIndex;
+//         if (noise) query.noise_class = noise;
+//         if (fuelClass) query.fuel_class = fuelClass;
+//         if (wetGrip) query.wet_grip = wetGrip;
 
-//         const [result] = await Product.aggregate(pipeline);
-//         const products = result.paginatedResults;
-//         const total = result.totalCount[0]?.count || 0;
-//         const minPrices = result.priceBounds[0]?.min || 0;
-//         const maxPrices = result.priceBounds[0]?.max || 0;
+              
+//                 // Utility functions
+//                 const getPriceRange = async () => {
+//                     const prices = await Product.find(query).select('search_price');
+//                     const validPrices = prices.map(p => parseFloat(p.search_price)).filter(p => !isNaN(p));
+//                     const min = validPrices.length ? Math.min(...validPrices) : 0;
+//                     const max = validPrices.length ? Math.max(...validPrices) : 0;
+//                     return { minPrices: min, maxPrices: max };
+//                 };
 
-//         return res.json({
+//                 // Get product counts for filters
+//                 const getCategoryCounts = async () => {
+//                     const categoryMatch = { ...query };
+//                     delete categoryMatch.merchant_product_third_category;
+//                     const products = await Product.find(categoryMatch, 'merchant_product_third_category');
+//                     const counts = {};
+//                     products.forEach(p => {
+//                         const cat = p.merchant_product_third_category || "Unknown";
+//                         counts[cat] = (counts[cat] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//                 const getBrandCounts = async () => {
+//                     const brandMatch = { ...query };
+//                     delete brandMatch.brand_name;
+//                     const products = await Product.find(brandMatch, 'brand_name');
+//                     const counts = {};
+//                     products.forEach(p => {
+//                         const brand = p.brand_name || "Unknown";
+//                         counts[brand] = (counts[brand] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//                 const getWidthCounts = async () => {
+//                     const widthMatch = { ...query };
+//                     delete widthMatch.width;
+//                     const products = await Product.find(widthMatch, 'width');
+//                     const counts = {};
+//                     products.forEach(p => {
+//                         const width = p.width || '';
+//                         counts[width] = (counts[width] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+//                 // Get height counts
+//                 const getHeightCounts = async () => {
+//                     const heightMatch = { ...query };
+//                     delete heightMatch.height;
+//                     const products = await Product.find(heightMatch, 'height');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const height = p.height || '';
+//                         counts[height] = (counts[height] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//                 // Get diameter counts
+//                 const getDiameterCounts = async () => {
+//                     const diameterMatch = { ...query };
+//                     delete diameterMatch.diameter;
+//                     const products = await Product.find(diameterMatch, 'diameter');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const diameter = p.diameter || '';
+//                         counts[diameter] = (counts[diameter] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+
+//                 // Get speed index counts using extractIndexesFromProductName
+//                 const getSpeedIndexCounts = async () => {
+//                     const speedMatch = { ...query };
+//                     delete speedMatch.speedIndex;
+//                     const products = await Product.find(speedMatch, 'speedIndex');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const speedIndex = p.speedIndex || '';
+//                         if (speedIndex) {
+//                             counts[speedIndex] = (counts[speedIndex] || 0) + 1;
+//                         }
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//                 // Get last index counts using extractIndexesFromProductName
+//                 const getLastIndexCounts = async () => {
+//                     const lastIndexMatch = { ...query };
+//                     delete lastIndexMatch.lastIndex;
+//                     const products = await Product.find(lastIndexMatch, 'lastIndex');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const lastIndex = p.lastIndex || '';
+//                         if (lastIndex) {
+//                             counts[lastIndex] = (counts[lastIndex] || 0) + 1;
+//                         }
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//               };
+
+//                 // Get noise counts
+//                 const getNoiseCounts = async () => {
+//                     const noiseMatch = { ...query };
+//                     delete noiseMatch.noise_class;
+//                     const products = await Product.find(noiseMatch, 'noise_class');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const noise = p.noise_class || "Unknown";
+//                         counts[noise] = (counts[noise] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//                 // Get fuel class counts
+//                 const getFuelClassCounts = async () => {
+//                     const fuelClassMatch = { ...query };
+//                     delete fuelClassMatch.fuel_class;
+//                     const products = await Product.find(fuelClassMatch, 'fuel_class');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const fuelClass = p.fuel_class || "Unknown";
+//                         counts[fuelClass] = (counts[fuelClass] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//                 // Get wet grip counts
+//                 const getWetGripCounts = async () => {
+//                     const wetGripMatch = { ...query };
+//                     delete wetGripMatch.wet_grip;
+//                     const products = await Product.find(wetGripMatch, 'wet_grip');
+//                     const counts = {};
+//                     products.forEach((p) => {
+//                         const wetGrip = p.wet_grip || "Unknown";
+//                         counts[wetGrip] = (counts[wetGrip] || 0) + 1;
+//                     });
+//                     return Object.entries(counts).map(([name, count]) => ({ name, count }));
+//                 };
+
+//         // Fetch product list with pagination
+//         const skip = (parseInt(page) - 1) * parseInt(limit);
+//         const sortOption = { [sort]: order === 'asc' ? 1 : -1 };
+
+//         const [total, products, priceRange] = await Promise.all([
+//             Product.countDocuments(query),
+//             Product.find(query).sort(sortOption).skip(skip).limit(+limit).select('brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price'),
+//             getPriceRange(),
+//         ]);
+
+//         // Get the filter counts in parallel
+//         const [
+//             categories,
+//             brands,
+//             widths,
+//             heights,
+//             diameters,
+//             speedIndexes,
+//             lastIndexes,
+//             noises,
+//             fuelClasses,
+//             wetGrips,
+//         ] = await Promise.all([
+//             getCategoryCounts(),
+//             getBrandCounts(),
+//             getWidthCounts(),
+//             getHeightCounts(),
+//             getDiameterCounts(),
+//             getSpeedIndexCounts(),
+//             getLastIndexCounts(),
+//             getNoiseCounts(),
+//             getFuelClassCounts(),
+//             getWetGripCounts(),
+//         ]);
+
+//         return res.status(200).json({
 //             total,
 //             products,
-//             minPrices,
-//             maxPrices,
+//             ...priceRange,
+
+//             // widths,
+//             // heights,
+//             // diameters,
+//             // speedIndexes,
+//             // lastIndexes,
+//             // noises,
+//             // fuelClasses,
+//             // wetGrips,
 //             filterGroups: {
-//                 brands: result.brands,
-//                 categories: result.categories,
-//                 widths: result.widths,
-//                 heights: result.heights,
-//                 diameters: result.diameters,
-//                 speedIndexes: result.speedIndexes,
-//                 lastIndexes: result.lastIndexes,
-//                 noises: result.noises,
-//                 fuelClasses: result.fuelClasses,
-//                 wetGrips: result.wetGrips,
+//                 categories,
+//                 brands,
+//                 widths,
+//                 heights,
+//                 diameters,
+//                 speedIndexes,
+//                 lastIndexes,
+//                 noises,
+//                 fuelClasses,
+//                 wetGrips,
 //             },
 //         });
+
 //     } catch (err) {
-//         console.error(err);
+//         console.error('Error in productLists:', err);
 //         return res.status(500).json({ message: 'Server error' });
 //     }
 // };
+// controllers/product.controller.js
+
+// const redis = new Redis({ host: 'localhost', port: 6379 }); // Use IP for production
+
+// export const productLists = async (req, res) => {
+//     try {
+//         const {
+//             limit = 12,
+//             sort = 'createdAt',
+//             order = 'desc',
+//             lastId, // For keyset
+//         } = req.query;
+
+//         const toArray = (val) =>
+//             Array.isArray(val)
+//                 ? val
+//                 : val
+//                     ? typeof val === 'string'
+//                         ? val.split(',').filter(Boolean)
+//                         : [val]
+//                     : [];
+
+//         const filters = {
+//             ...(req.query.category && {
+//                 merchant_product_third_category: { $in: toArray(req.query.category) },
+//             }),
+//             ...(req.query.brand && {
+//                 brand_name: { $in: toArray(req.query.brand) },
+//             }),
+//             ...(req.query.width && {
+//                 width: { $in: toArray(req.query.width) },
+//             }),
+//             ...(req.query.height && {
+//                 height: { $in: toArray(req.query.height) },
+//             }),
+//             ...(req.query.diameter && {
+//                 diameter: { $in: toArray(req.query.diameter) },
+//             }),
+//             ...(req.query.speedIndex && {
+//                 speedIndex: { $in: toArray(req.query.speedIndex) },
+//             }),
+//             ...(req.query.lastIndex && {
+//                 lastIndex: { $in: toArray(req.query.lastIndex) },
+//             }),
+//             ...(req.query.noise && {
+//                 noise_class: { $in: toArray(req.query.noise) },
+//             }),
+//             ...(req.query.fuelClass && {
+//                 fuel_class: { $in: toArray(req.query.fuelClass) },
+//             }),
+//             ...(req.query.wetGrip && {
+//                 wet_grip: { $in: toArray(req.query.wetGrip) },
+//             }),
+//         };
+
+//         const sortField = sort === 'price' ? 'search_price' : 'createdAt';
+//         const sortDir = order === 'asc' ? 1 : -1;
+
+//         // Keyset condition
+//         if (lastId) {
+//             filters._id = { [sortDir === 1 ? '$gt' : '$lt']: lastId };
+//         }
+
+//         // Redis key
+//         const redisKey = `filters:${hash(filters)}`;
+//         let cached = await redis.get(redisKey);
+//         let filterData;
+
+//         if (cached) {
+//             filterData = JSON.parse(cached);
+//         } else {
+//             const fieldMap = {
+//                 categories: 'merchant_product_third_category',
+//                 brands: 'brand_name',
+//                 widths: 'width',
+//                 heights: 'height',
+//                 diameters: 'diameter',
+//                 speedIndexes: 'speedIndex',
+//                 lastIndexes: 'lastIndex',
+//                 noises: 'noise_class',
+//                 fuelClasses: 'fuel_class',
+//                 wetGrips: 'wet_grip',
+//             };
+
+//             const facetStage = {};
+
+//             for (const [facetName, field] of Object.entries(fieldMap)) {
+//                 const copyFilter = { ...filters };
+//                 delete copyFilter[field];
+//                 facetStage[facetName] = [
+//                     { $match: copyFilter },
+//                     { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+//                     { $project: { name: '$_id', count: 1, _id: 0 } },
+//                 ];
+//             }
+
+//             facetStage.prices = [
+//                 { $match: filters },
+//                 {
+//                     $group: {
+//                         _id: null,
+//                         min: { $min: '$search_price' },
+//                         max: { $max: '$search_price' },
+//                     },
+//                 },
+//             ];
+
+//             const [agg] = await Product.aggregate([{ $facet: facetStage }]);
+//             filterData = agg || {};
+//             await redis.set(redisKey, JSON.stringify(filterData), 'EX', 60); // TTL: 60s
+//         }
+
+//         const products = await Product.find(filters)
+//             .sort({ [sortField]: sortDir, _id: sortDir }) // for keyset
+//             .limit(+limit)
+//             .select(
+//                 'brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price'
+//             )
+//             .lean();
+
+//         const total = await Product.countDocuments(filters);
+//         const price = filterData.prices?.[0] || { min: 0, max: 0 };
+
+//         return res.status(200).json({
+//             total,
+//             products,
+//             lastId: products.length > 0 ? products[products.length - 1]._id : null,
+//             minPrices: price.min,
+//             maxPrices: price.max,
+//             filterGroups: {
+//                 categories: filterData.categories || [],
+//                 brands: filterData.brands || [],
+//                 widths: filterData.widths || [],
+//                 heights: filterData.heights || [],
+//                 diameters: filterData.diameters || [],
+//                 speedIndexes: filterData.speedIndexes || [],
+//                 lastIndexes: filterData.lastIndexes || [],
+//                 noises: filterData.noises || [],
+//                 fuelClasses: filterData.fuelClasses || [],
+//                 wetGrips: filterData.wetGrips || [],
+//             },
+//         });
+//     } catch (err) {
+//         console.error('Error in productLists:', err);
+//         return res.status(500).json({ message: 'Server error' });
+//     }
+// };
+export const productLists = async (req, res) => {
+    try {
+        const {
+            page = 1,
+            limit = 12,
+            sort = 'createdAt',
+            order = 'desc',
+        } = req.query;
+
+        // Ensure array handling from query
+        const toArray = val =>
+            Array.isArray(val)
+                ? val
+                : val
+                    ? typeof val === 'string'
+                        ? val.split(',').filter(Boolean)
+                        : [val]
+                    : [];
+
+        const filters = {
+            ...(req.query.category && {
+                merchant_product_third_category: { $in: toArray(req.query.category) },
+            }),
+            ...(req.query.brand && {
+                brand_name: { $in: toArray(req.query.brand) },
+            }),
+            ...(req.query.width && {
+                width: { $in: toArray(req.query.width) },
+            }),
+            ...(req.query.height && {
+                height: { $in: toArray(req.query.height) },
+            }),
+            ...(req.query.diameter && {
+                diameter: { $in: toArray(req.query.diameter) },
+            }),
+            ...(req.query.speedIndex && {
+                speedIndex: { $in: toArray(req.query.speedIndex) },
+            }),
+            ...(req.query.lastIndex && {
+                lastIndex: { $in: toArray(req.query.lastIndex) },
+            }),
+            ...(req.query.noise && {
+                noise_class: { $in: toArray(req.query.noise) },
+            }),
+            ...(req.query.fuelClass && {
+                fuel_class: { $in: toArray(req.query.fuelClass) },
+            }),
+            ...(req.query.wetGrip && {
+                wet_grip: { $in: toArray(req.query.wetGrip) },
+            }),
+        };
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const sortOption = { [sort]: order === 'asc' ? 1 : -1 };
+
+        // Fields for faceted grouping
+        const fieldMap = {
+            categories: 'merchant_product_third_category',
+            brands: 'brand_name',
+            widths: 'width',
+            heights: 'height',
+            diameters: 'diameter',
+            speedIndexes: 'speedIndex',
+            lastIndexes: 'lastIndex',
+            noises: 'noise_class',
+            fuelClasses: 'fuel_class',
+            wetGrips: 'wet_grip',
+        };
+
+        // Create dynamic facet stages
+        const facetStage = {};
+        for (const [facetName, field] of Object.entries(fieldMap)) {
+            const filterCopy = { ...filters };
+            delete filterCopy[field]; // Don't filter on the same field you're grouping
+            facetStage[facetName] = [
+                { $match: filterCopy },
+                { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+                { $project: { name: '$_id', count: 1, _id: 0 } },
+            ];
+        }
+
+        // Add price range aggregation
+        facetStage.prices = [
+            { $match: filters },
+            {
+                $group: {
+                    _id: null,
+                    min: { $min: '$search_price' },
+                    max: { $max: '$search_price' },
+                },
+            },
+        ];
+
+        // Fetch data
+        const [products, total, agg] = await Promise.all([
+            Product.find(filters)
+                .sort(sortOption)
+                .skip(skip)
+                .limit(+limit)
+                .select(
+                    'brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price'
+                )
+                .lean(),
+            Product.countDocuments(filters),
+            Product.aggregate([{ $facet: facetStage }]),
+        ]);
+
+        const result = agg[0] || {};
+        const priceData = result.prices?.[0] || { min: 0, max: 0 };
+
+        return res.status(200).json({
+            total,
+            products,
+            minPrices: priceData.min,
+            maxPrices: priceData.max,
+            filterGroups: {
+                categories: result.categories || [],
+                brands: result.brands || [],
+                widths: result.widths || [],
+                heights: result.heights || [],
+                diameters: result.diameters || [],
+                speedIndexes: result.speedIndexes || [],
+                lastIndexes: result.lastIndexes || [],
+                noises: result.noises || [],
+                fuelClasses: result.fuelClasses || [],
+                wetGrips: result.wetGrips || [],
+            },
+        });
+    } catch (err) {
+        console.error('Error in productLists:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+};
   
 
 // ========================================
-
-
-/**
- * Fetch product details by productId (either `ean`, `aw_product_id`, or MongoDB `_id`).
- * Also fetches up to 4 related products from the same category, product category, and with matching width, height, diameter, lastIndex, and speedIndex (excluding the current product).
- */
-// export const getProductDetails = async (req, res) => {
-//     const { productId } = req.params;
-
-//     // Utility to parse tyre dimensions
-//     const parseTyreDimensions = (dim) => {
-//         if (!dim) return { width: '', height: '', diameter: '' };
-//         const match =
-//             dim.match(/^(\d+)[ /-](\d+)[ /-]R\s?(\d+)$/i) ||
-//             dim.match(/^(\d+)[ /-](\d+)[ /-](\d+)$/i) ||
-//             dim.match(/^(\d+)\/(\d+)R(\d+)$/i) ||
-//             dim.match(/^(\d+)\/(\d+)\/?R?(\d+)$/i);
-//         if (match) {
-//             return { width: match[1], height: match[2], diameter: match[3] };
-//         }
-//         const rMatch = dim.match(/R\s?(\d+)/i);
-//         const parts = dim.match(/\d+/g) || [];
-//         return {
-//             width: parts[0] || '',
-//             height: parts[1] || '',
-//             diameter: rMatch ? rMatch[1] : parts[2] || '',
-//         };
-//     };
-
-//     // Utility to extract speed index and last index from product name
-//     const extractIndexesFromProductName = (productName) => {
-//         const matches = productName.match(/\b(\d{2,3})([A-Z]{1,2})\b/g) || [];
-//         const rIdx = productName.search(/\bR\d+\b/i);
-//         if (rIdx === -1) return { lastIndex: '', speedIndex: '' };
-//         const tail = productName.substring(rIdx + 2); // skip "R" and digits
-//         const idxMatch = tail.match(/\b(\d{2,3})([A-Z]{1,2})\b/);
-//         if (idxMatch) {
-//             return { lastIndex: idxMatch[1], speedIndex: idxMatch[2] };
-//         }
-//         if (matches.length > 0) {
-//             const m = matches[0].match(/(\d{2,3})([A-Z]{1,2})/);
-//             if (m) return { lastIndex: m[1], speedIndex: m[2] };
-//         }
-//         return { lastIndex: '', speedIndex: '' };
-//     };
-
-//     try {
-//         // Try to find by MongoDB _id, ean, or aw_product_id
-//         let product = await Product.findOne({
-//             $or: [
-//                 { _id: productId },
-//                 { ean: productId },
-//                 { aw_product_id: productId }
-//             ]
-//         });
-
-//         if (!product) {
-//             return res.status(404).json({ message: "Product not found" });
-//         }
-
-//         // Parse dimensions and indexes for filtering related products
-//         const { width, height, diameter } = parseTyreDimensions(product.dimensions || '');
-//         const { lastIndex, speedIndex } = extractIndexesFromProductName(product.product_name || '');
-
-//         // Build related product filter
-//         const relatedFilter = {
-//             merchant_product_third_category: product.merchant_product_third_category,
-//             product_category: product.product_category,
-//             _id: { $ne: product._id }
-//         };
-
-//         if (width) relatedFilter.dimensions = new RegExp(`^${width}[ /-]`);
-//         if (height) relatedFilter.dimensions = new RegExp(`[ /-]${height}[ /-]`);
-//         if (diameter) relatedFilter.dimensions = new RegExp(`R?${diameter}$`, 'i');
-//         if (speedIndex) relatedFilter.product_name = new RegExp(`\\d{2,3}${speedIndex}`, 'i');
-//         if (lastIndex) relatedFilter.product_name = new RegExp(`\\b${lastIndex}[A-Z]{1,2}\\b`, 'i');
-
-
-//         // Fetch related products by filters, excluding the current product
-//         const relatedProducts = await Product.find(relatedFilter).limit(10);
-
-//         return res.status(200).json({ product, relatedProducts });
-//     } catch (err) {
-//         console.error('Error fetching product details:', err);
-//         return res.status(500).json({ message: 'Server error' });
-//     }
-// };
-// Simple in-memory cache
 const relatedProductsCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
 
@@ -585,7 +648,6 @@ export const getProductDetails = async (req, res) => {
     }
 };
 
-
 export const getBrandSummary = async (req, res) => {
     try {
         // Define the query object, this will be empty to fetch all brands
@@ -669,52 +731,102 @@ export const getLatestProducts = async (req, res) => {
   };
 
 
-export const getLatestWinterProducts = async (req, res) => {
+
+
+
+// Save/update settings
+export const updateFeaturedSettings = async (req, res) => {
     try {
-        const latestWinterProducts = await Product.aggregate([
-            {
-                $match: {
-                    merchant_product_third_category: 'Winterreifen',
-                },
-            },
-            {
-                $sort: {
-                    createdAt: -1, // Ensure the latest products come first
-                },
-            },
+        const { category, section_title } = req.body;
+        if (!category || !section_title) {
+            return res.status(400).json({ message: 'Category and title are required' });
+        }
+
+        const updated = await FeaturedSettings.findOneAndUpdate(
+            {},
+            { category, section_title },
+            { upsert: true, new: true }
+        );
+
+        res.status(200).json({ message: 'Settings updated', settings: updated });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to update settings', error: err.message });
+    }
+};
+
+// Get latest products based on saved category
+export const getFeaturedProducts = async (req, res) => {
+    try {
+        const settings = await FeaturedSettings.findOne();
+        const category = settings?.category || 'Winterreifen';
+
+        const featuredProducts = await Product.aggregate([
+            { $match: { merchant_product_third_category: category } },
+            { $sort: { createdAt: -1 } },
             {
                 $group: {
                     _id: '$brand_name',
-                    product: { $first: '$$ROOT' }, // Pick the latest product per brand
+                    product: { $first: '$$ROOT' },
                 },
             },
-            {
-                $replaceRoot: { newRoot: '$product' },
-            },
-            {
-                $limit: 10,
-            },
+            { $replaceRoot: { newRoot: '$product' } },
+            { $limit: 10 },
         ]);
 
-        if (!latestWinterProducts.length) {
-            return res
-                .status(404)
-                .json({ message: 'No winter products found.' });
-        }
-
-        return res.status(200).json({
-            message: 'Latest 10 Winterreifen Products (one per brand)',
-            products: latestWinterProducts,
+        res.status(200).json({
+            title: settings?.section_title || 'Our recommendation',
+            category,
+            products: featuredProducts,
         });
-    } catch (error) {
-        console.error('Error fetching latest winter products:', error);
-        return res
-            .status(500)
-            .json({ message: 'Server error', error: error.message });
+    } catch (err) {
+        res.status(500).json({ message: 'Error loading featured products', error: err.message });
     }
 };
-  
 
+// export const getLatestWinterProducts = async (req, res) => {
+//     try {
+//         const latestWinterProducts = await Product.aggregate([
+//             {
+//                 $match: {
+//                     merchant_product_third_category: 'Winterreifen',
+//                 },
+//             },
+//             {
+//                 $sort: {
+//                     createdAt: -1, // Ensure the latest products come first
+//                 },
+//             },
+//             {
+//                 $group: {
+//                     _id: '$brand_name',
+//                     product: { $first: '$$ROOT' }, // Pick the latest product per brand
+//                 },
+//             },
+//             {
+//                 $replaceRoot: { newRoot: '$product' },
+//             },
+//             {
+//                 $limit: 10,
+//             },
+//         ]);
+
+//         if (!latestWinterProducts.length) {
+//             return res
+//                 .status(404)
+//                 .json({ message: 'No winter products found.' });
+//         }
+
+//         return res.status(200).json({
+//             message: 'Latest 10 Winterreifen Products (one per brand)',
+//             products: latestWinterProducts,
+//         });
+//     } catch (error) {
+//         console.error('Error fetching latest winter products:', error);
+//         return res
+//             .status(500)
+//             .json({ message: 'Server error', error: error.message });
+//     }
+// };
 
 export const GetFilterTyres = async (req, res) => {
     try {
@@ -779,7 +891,6 @@ export const GetFilterTyres = async (req, res) => {
     }
 };
   
-
 export const getSearchSuggestions = async (req, res) => {
     const { query } = req.query;
 

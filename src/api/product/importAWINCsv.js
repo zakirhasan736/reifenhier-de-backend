@@ -127,6 +127,7 @@ export async function importAWINCsv(filePath) {
                         currency: row["currency"],
                         store_price: row["store_price"],
                         colour: row["colour"],
+                        vendor: vendorName,
                         product_short_description: row["product_short_description"],
                         specifications: row["specifications"],
                         condition: row["condition"],

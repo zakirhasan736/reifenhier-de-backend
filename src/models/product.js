@@ -39,6 +39,7 @@ const ProductSchema = new mongoose.Schema({
   keywords: String,
   promotional_text: String,
   product_type: String,
+  vendor_name: String,
   commission_group: String,
   merchant_product_category_path: String,
   merchant_product_second_category: String,
@@ -103,59 +104,3 @@ const ProductSchema = new mongoose.Schema({
 
 
 export default mongoose.models.Product || mongoose.model("Product", ProductSchema);
-
-// models/Product.js
-// import mongoose from 'mongoose';
-
-// const OfferSchema = new mongoose.Schema({
-//   vendor: String,
-//   vendor_id: String,
-//   vendor_logo: String,
-//   product_name: String,
-//   brand_name: String,
-//   price: Number,
-//   currency: String,
-//   aw_deep_link: String,
-//   original_affiliate_url: String,
-//   delivery_cost: String,
-//   delivery_time: String,
-//   merchant_deep_link: String,
-//   product_category: String,
-//   in_stock: Boolean,
-// }, { _id: false });
-
-// const ProductSchema = new mongoose.Schema({
-//   ean: { type: String, required: true, unique: true },
-//   product_name: String,
-//   brand_name: String,
-//   brand_logo: String,
-//   category_name: String,
-//   merchant_product_third_category: {
-//     type: String,
-//     set: val => val?.trim() || 'all sessions'
-//   },
-//   dimensions: String,
-//   width: String,
-//   height: String,
-//   diameter: String,
-//   speedIndex: String,
-//   lastIndex: String,
-//   noise_class: String,
-//   fuel_class: String,
-//   wet_grip: String,
-//   description: String,
-//   product_image: String,
-//   search_price: {
-//     type: Number,
-//     set: v => parseFloat(v) 
-//   },
-//   product_url: String,
-//   delivery_time: String,
-//   is_for_sale: String,
-//   in_stock: String,
-//   average_rating: String,
-//   rating: String,
-//   offers: [OfferSchema]
-// }, { timestamps: true });
-
-// export default mongoose.models.Product || mongoose.model('Product', ProductSchema);
