@@ -1,7 +1,8 @@
 {
   "name": "tyre-affiliate-backend",
   "version": "1.0.0",
-  "description": "Backend API for Tyre Affiliate Admin Panel",
+  "description": "Backend API for Tyre Affiliate Admin Panel this sytem backend developed by zakir",
+  "author": "zakirwebdev",
   "main": "src/server.js",
   "type": "module",
   "scripts": {

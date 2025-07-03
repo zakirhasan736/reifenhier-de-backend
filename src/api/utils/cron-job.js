@@ -1,44 +1,4 @@
-// import cron from "node-cron";
-// import fetch from "node-fetch";
-// import fs from "fs";
-// import path from "path";
-// import { startCsvImportAsync } from "../product/importAWINCsv.js";
 
-// const AWIN_CSV_URL = process.env.AWIN_CSV_URL;
-// const LOCAL_CSV_PATH = path.join(process.cwd(), "uploads", "awin-products.csv");
-
-// let lastImport = 0; // timestamp for lock
-
-// // Every hour at minute 0
-// cron.schedule("0 * * * *", async () => {
-//     // Simple lock: Don't start if an import is still running
-//     if (Date.now() - lastImport < 50 * 60 * 1000) { // 50 minutes lock
-//         console.log("[CRON] Last import still running or too recent, skipping.");
-//         return;
-//     }
-//     lastImport = Date.now();
-//     try {
-//         console.log(`[CRON] Fetching AWIN CSV from: ${AWIN_CSV_URL}`);
-//         const res = await fetch(AWIN_CSV_URL);
-//         if (!res.ok) throw new Error("CSV download failed: " + res.statusText);
-
-//         await fs.promises.mkdir(path.dirname(LOCAL_CSV_PATH), { recursive: true });
-//         const fileStream = fs.createWriteStream(LOCAL_CSV_PATH);
-//         await new Promise((resolve, reject) => {
-//             res.body.pipe(fileStream);
-//             res.body.on("error", reject);
-//             fileStream.on("finish", resolve);
-//         });
-
-//         // Import async/background! Does NOT block the Node.js event loop
-//         startCsvImportAsync(LOCAL_CSV_PATH);
-//         console.log("[CRON] AWIN CSV fetch complete, import started:", new Date());
-
-//     } catch (err) {
-//         console.error("[CRON] Error fetching/importing AWIN CSV:", err);
-//     }
-// });
-// src/api/utils/cron-awin.js
 // import cron from "node-cron";
 // import fetch from "node-fetch";
 // import AdmZip from "adm-zip";
@@ -46,46 +6,114 @@
 // import os from "os";
 // import path from "path";
 // import dotenv from "dotenv";
-// import { startCsvImportAsync } from "../product/importAWINCsv.js"; // adjust path if needed
+// import { startCsvImportAsync, waitForImportToFinish } from "../product/importAWINCsv.js"; // 👈 include wait
+// import ImportMeta from "../../models/ImportMeta.js";
 
 // dotenv.config();
 
 // const AWIN_CSV_URL = process.env.AWIN_CSV_URL;
-// let lastImport = 0;
+// const RETRY_DELAY_MS = 2 * 60 * 1000;
+// const SUCCESS_DELAY_MS = 60 * 60 * 1000; // 1 hour
+// const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
 
-// cron.schedule("0 * * * *", async () => {
-//     if (Date.now() - lastImport < 50 * 60 * 1000) {
-//         console.log("[CRON] Previous import still in cooldown. Skipping.");
-//         return;
+// let lastSuccess = 0;
+// let isRunning = false;
+
+// // Ensure temp directory exists
+// if (!fs.existsSync(TEMP_DIR)) {
+//     fs.mkdirSync(TEMP_DIR, { recursive: true });
+// }
+
+// function cleanOldFiles() {
+//     const files = fs.readdirSync(TEMP_DIR);
+//     for (const file of files) {
+//         try {
+//             fs.unlinkSync(path.join(TEMP_DIR, file));
+//         } catch (err) {
+//             console.warn(`[CLEANUP] Failed to delete ${file}:`, err.message);
+//         }
 //     }
+// }
 
+// async function attemptCsvImport() {
+//     if (isRunning) return;
 //     if (!AWIN_CSV_URL) {
-//         console.error("[CRON] AWIN_CSV_URL not set in environment.");
+//         console.error("[CRON] AWIN_CSV_URL not set in .env.");
 //         return;
 //     }
+
+//     const meta = await ImportMeta.findOne({ source: "AWIN" });
+//     const lastTime = meta?.lastSuccess?.getTime() || 0;
+//     const now = Date.now();
+
+
+//     if (now - lastTime < SUCCESS_DELAY_MS) {
+//         const minutesLeft = Math.ceil((SUCCESS_DELAY_MS - (now - lastTime)) / 60000);
+//         console.log(`[CRON] Skipping: Next AWIN import in ~${minutesLeft} min.`);
+//         return;
+//     }
+
+//     isRunning = true;
 
 //     try {
+//         cleanOldFiles(); // 💥 Delete old files before new run
+
 //         console.log("[CRON] Downloading AWIN ZIP...");
 //         const res = await fetch(AWIN_CSV_URL);
-//         if (!res.ok) throw new Error(`Download failed: ${res.statusText}`);
+//         if (!res.ok) throw new Error("CSV fetch failed: " + res.statusText);
 
-//         const buffer = await res.buffer();
+//         const buffer = Buffer.from(await res.arrayBuffer());
 //         const zip = new AdmZip(buffer);
-//         const entries = zip.getEntries();
-//         const csvEntry = entries.find(e => e.entryName.endsWith(".csv"));
+//         const csvEntry = zip.getEntries().find((e) => e.entryName.endsWith(".csv"));
+//         if (!csvEntry) throw new Error("CSV not found in ZIP");
 
-//         if (!csvEntry) throw new Error("CSV file not found in ZIP.");
-
-//         const tmpPath = path.join(os.tmpdir(), `awin-${Date.now()}.csv`);
+//         const tmpPath = path.join(TEMP_DIR, `awin-${Date.now()}.csv`);
 //         fs.writeFileSync(tmpPath, zip.readFile(csvEntry));
 //         console.log("[CRON] CSV extracted to:", tmpPath);
 
 //         startCsvImportAsync(tmpPath);
-//         lastImport = Date.now();
-//         console.log("[CRON] AWIN import started:", new Date().toISOString());
+//         console.log("[CRON] Import started... waiting for completion...");
+
+//         await waitForImportToFinish(); // ⏳ Wait until import finishes
+//         // ✅ Mark import success in DB
+//         await ImportMeta.findOneAndUpdate(
+//             { source: "AWIN" },
+//             { $set: { lastSuccess: new Date() } },
+//             { upsert: true }
+//         );
+
+//         console.log("[CRON] ✅ AWIN import finished. Delay next run by 1 hour.");
+
+//         // 🔁 Delete temp CSV after delay
+//         setTimeout(() => {
+//             fs.unlink(tmpPath, (err) => {
+//                 if (err) {
+//                     console.error("[CLEANUP] Failed to delete CSV:", err.message);
+//                 } else {
+//                     console.log("[CLEANUP] Temp CSV deleted:", tmpPath);
+//                 }
+//             });
+//         }, 20000); // Wait 20s
+//         lastSuccess = Date.now(); // ✅ Mark success AFTER full import
+//         console.log("[CRON] Import finished at:", new Date().toISOString());
+
+//         setTimeout(() => {
+//             fs.unlink(tmpPath, (err) => {
+//                 if (err) console.error("[CLEANUP] Failed to delete temp CSV:", err.message);
+//                 else console.log("[CLEANUP] Temp CSV deleted:", tmpPath);
+//             });
+//         }, 20000);
+
 //     } catch (err) {
-//         console.error("[CRON] AWIN import failed:", err.message);
+//         console.error("[CRON ERROR]", err.message);
+//         setTimeout(attemptCsvImport, RETRY_DELAY_MS); // Retry on failure
+//     } finally {
+//         isRunning = false;
 //     }
+// }
+
+// cron.schedule("* * * * *", () => {
+//     attemptCsvImport();
 // });
 import cron from "node-cron";
 import fetch from "node-fetch";
@@ -94,30 +122,51 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import dotenv from "dotenv";
-import { startCsvImportAsync } from "../product/importAWINCsv.js";
+import { startCsvImportAsync, waitForImportToFinish } from "../product/importAWINCsv.js";
+import ImportMeta from "../../models/ImportMeta.js";
 
 dotenv.config();
 
 const AWIN_CSV_URL = process.env.AWIN_CSV_URL;
-const RETRY_DELAY_MS = 2 * 60 * 1000; // Retry every 2 minutes on failure
-const SUCCESS_DELAY_MS = 60 * 60 * 1000; // Wait 1 hour after success
+const RETRY_DELAY_MS = 2 * 60 * 1000;       // Retry delay on failure (2 minutes)
+const SUCCESS_DELAY_MS = 60 * 60 * 1000;     // Wait 1 hour after successful import
+const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
 
-let lastSuccess = 0;
 let isRunning = false;
 
+// Ensure temp directory exists
+if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+function cleanOldFiles() {
+    for (const file of fs.readdirSync(TEMP_DIR)) {
+        try {
+            fs.unlinkSync(path.join(TEMP_DIR, file));
+        } catch (err) {
+            console.warn(`[CLEANUP] Failed to delete ${file}:`, err.message);
+        }
+    }
+}
+
 async function attemptCsvImport() {
-    if (isRunning) return;
-    if (!AWIN_CSV_URL) {
-        console.error("[CRON] AWIN_CSV_URL not set in environment.");
+    if (isRunning || !AWIN_CSV_URL) return;
+
+    const meta = await ImportMeta.findOne({ source: "AWIN" });
+    const lastSuccess = meta?.lastSuccess?.getTime() || 0;
+    const now = Date.now();
+
+    if (now - lastSuccess < SUCCESS_DELAY_MS) {
+        const minutesLeft = Math.ceil((SUCCESS_DELAY_MS - (now - lastSuccess)) / 60000);
+        console.log(`[CRON] Skipping: next AWIN import in ~${minutesLeft} min.`);
         return;
     }
-
-    const now = Date.now();
-    if (now - lastSuccess < SUCCESS_DELAY_MS) return;
 
     isRunning = true;
 
     try {
+        cleanOldFiles(); // 🧹 Clean temp directory
+
         console.log("[CRON] Downloading AWIN ZIP...");
         const res = await fetch(AWIN_CSV_URL);
         if (!res.ok) throw new Error("CSV fetch failed: " + res.statusText);
@@ -127,23 +176,35 @@ async function attemptCsvImport() {
         const csvEntry = zip.getEntries().find(e => e.entryName.endsWith(".csv"));
         if (!csvEntry) throw new Error("CSV not found in ZIP");
 
-        const tmpPath = path.join(os.tmpdir(), `awin-${Date.now()}.csv`);
+        const tmpPath = path.join(TEMP_DIR, `awin-${Date.now()}.csv`);
         fs.writeFileSync(tmpPath, zip.readFile(csvEntry));
         console.log("[CRON] CSV extracted to:", tmpPath);
 
         startCsvImportAsync(tmpPath);
-        lastSuccess = Date.now();
-        console.log("[CRON] AWIN import started successfully at", new Date().toISOString());
+        console.log("[CRON] Import started... waiting for it to complete...");
+        await waitForImportToFinish();
+
+        await ImportMeta.findOneAndUpdate(
+            { source: "AWIN" },
+            { $set: { lastSuccess: new Date() } },
+            { upsert: true }
+        );
+        console.log("[CRON] ✅ AWIN import finished successfully.");
+
+        setTimeout(() => {
+            fs.unlink(tmpPath, (err) => {
+                if (err) console.error("[CLEANUP] Failed to delete temp CSV:", err.message);
+                else console.log("[CLEANUP] Temp CSV deleted:", tmpPath);
+            });
+        }, 20000); // delete CSV after 20 seconds
+
     } catch (err) {
         console.error("[CRON ERROR]", err.message);
-        // Retry after delay
-        setTimeout(attemptCsvImport, RETRY_DELAY_MS);
+        setTimeout(attemptCsvImport, RETRY_DELAY_MS); // retry on failure
     } finally {
         isRunning = false;
     }
 }
 
-// Kick off every 1 minute, but it will manage delay itself
-cron.schedule("* * * * *", () => {
-    attemptCsvImport();
-});
+// ⏰ Cron schedule: check every minute, self-manages delay
+cron.schedule("* * * * *", attemptCsvImport);

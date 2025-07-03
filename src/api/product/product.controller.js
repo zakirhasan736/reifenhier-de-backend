@@ -691,34 +691,31 @@ export const getBrandSummary = async (req, res) => {
 
 export const getLatestProducts = async (req, res) => {
     try {
-        const latestProducts = await Product.aggregate([
-            // Sort by creation time, newest first
-            { $sort: { createdAt: -1 } },
+        // Get top 500 most recent products (adjust as needed)
+        const recentProducts = await Product.find({})
+            .sort({ createdAt: -1 })
+            .limit(500)
+            .lean();
 
-            // Group by brand_name, pick the first (latest) product per brand
-            {
-                $group: {
-                    _id: "$brand_name",
-                    product: { $first: "$$ROOT" },
-                }
-            },
+        // Pick only the first product per brand
+        const seenBrands = new Set();
+        const latestUnique = [];
 
-            // Flatten the grouped product object
-            {
-                $replaceRoot: { newRoot: "$product" }
-            },
+        for (const product of recentProducts) {
+            if (!seenBrands.has(product.brand_name)) {
+                seenBrands.add(product.brand_name);
+                latestUnique.push(product);
+            }
+            if (latestUnique.length === 10) break;
+        }
 
-            // Limit to top 10 latest distinct-brand products
-            { $limit: 10 }
-        ]);
-
-        if (!latestProducts.length) {
+        if (!latestUnique.length) {
             return res.status(404).json({ message: "No products found." });
         }
 
         return res.status(200).json({
             message: "Latest 10 products (one per brand)",
-            products: latestProducts,
+            products: latestUnique,
         });
 
     } catch (error) {
@@ -728,8 +725,8 @@ export const getLatestProducts = async (req, res) => {
             error: error.message || String(error),
         });
     }
-  };
-
+};
+  
 
 
 
