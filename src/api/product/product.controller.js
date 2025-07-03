@@ -495,7 +495,7 @@ export const productLists = async (req, res) => {
                 .skip(skip)
                 .limit(+limit)
                 .select(
-                    'brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price'
+                    'brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price merchant_product_category_path merchant_product_second_category'
                 )
                 .lean(),
             Product.countDocuments(filters),
