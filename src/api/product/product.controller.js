@@ -650,44 +650,40 @@ export const getProductDetails = async (req, res) => {
 
 export const getBrandSummary = async (req, res) => {
     try {
-        // Define the query object, this will be empty to fetch all brands
-        const query = {};
-
-        // Fetch all products and group them by brand_name to get the total product count for each brand
-        const products = await Product.find(query, 'brand_name brand_logo');  // Only fetching brand_name and brand_logo fields
-
-        const brandCounts = {};
-
-        // Iterate through the products to accumulate counts of products per brand
-        products.forEach((product) => {
-            const brandName = product.brand_name || "Unknown";  // Default to "Unknown" if no brand name is provided
-            if (!brandCounts[brandName]) {
-                brandCounts[brandName] = {
-                    brand_name: brandName,
-                    brandLogo: product.brand_logo || "",  // Default logo if none is available
-                    count: 0,
-                };
+        const brandSummary = await Product.aggregate([
+            {
+                $group: {
+                    _id: "$brand_name",
+                    brandLogo: { $first: "$brand_logo" },
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    brand_name: { $ifNull: ["$_id", "Unknown"] },
+                    brandLogo: { $ifNull: ["$brandLogo", ""] },
+                    count: 1
+                }
+            },
+            {
+                $sort: { count: -1 } // Optional: sort by product count descending
             }
-            brandCounts[brandName].count += 1;  // Increment product count for the brand
-        });
+        ]);
 
-        // Convert the brandCounts object into an array for the response
-        const brandSummary = Object.values(brandCounts);
-
-        // Send the brand summary as the response
         res.status(200).json({
             message: "Brand summary with product counts",
             brands: brandSummary,
         });
-
     } catch (error) {
-        console.error('Error fetching brand summary:', error);
+        console.error("Error fetching brand summary:", error);
         res.status(500).json({
             message: "Server error",
             error: error.message || String(error),
         });
     }
 };
+
 
 export const getLatestProducts = async (req, res) => {
     try {
