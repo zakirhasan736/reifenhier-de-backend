@@ -1559,7 +1559,7 @@ export async function importAWINCsv(filePath) {
                     delivery_time: row["delivery_time"],
                     product_category: thirdCategory,
                     merchant_deep_link: row["merchant_deep_link"],
-                    in_stock: row["in_stock"] === "1",
+                    in_stock: row["in_stock"] === "1" || row["in_stock"] === 1 || row["in_stock"] === 1.0,
                 };
 
                 if (!products[ean]) {
@@ -1593,7 +1593,7 @@ export async function importAWINCsv(filePath) {
                         merchant_product_second_category: row["merchant_product_second_category"],
                         merchant_product_third_category: row["merchant_product_third_category"],
                         last_updated: row["last_updated"],
-                        in_stock: row["in_stock"],
+                        in_stock: row["in_stock"] === "1" || row["in_stock"] === 1 || row["in_stock"] === 1.0,
                         stock_quantity: row["stock_quantity"],
                         noise_class: row["custom_1"],
                         wet_grip: row["custom_2"],
