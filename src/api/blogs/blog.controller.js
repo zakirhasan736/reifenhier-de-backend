@@ -45,7 +45,7 @@ export const createBlog = async (req, res) => {
         }
 
         const parsedBlocks = typeof contentBlocks === 'string' ? JSON.parse(contentBlocks) : contentBlocks;
-        // Normalize slug
+        // Normalize slug (same logic as updateBlog)
         const slug = slugify(title, { lower: true, strict: true });
 
         // Optional: check if slug already exists
@@ -53,7 +53,6 @@ export const createBlog = async (req, res) => {
         if (existing) {
             return res.status(400).json({ message: 'A blog with this title already exists.' });
         }
-        // const slug = title.toLowerCase().replace(/\s+/g, '-');
         const image = req.file?.path;
 
         const newBlog = new Blog({
@@ -69,11 +68,42 @@ export const createBlog = async (req, res) => {
         res.status(201).json({ message: 'Blog created successfully', blog: newBlog });
 
     } catch (err) {
-        console.error('❌ Error creating blog:', err); // 👈 This is what you should look for
+        console.error('❌ Error creating blog:', err);
         res.status(500).json({ message: 'Failed to create blog' });
     }
 };
-  
+
+// Update blog
+export const updateBlog = async (req, res) => {
+    try {
+        const { title, contentBlocks, tags, metaDescription } = req.body;
+        const parsedBlocks = typeof contentBlocks === 'string' ? JSON.parse(contentBlocks) : contentBlocks;
+
+        // Use the same slug logic as createBlog
+        const slug = slugify(title, { lower: true, strict: true });
+
+        const updatedFields = {
+            title,
+            slug,
+            contentBlocks: parsedBlocks,
+            tags: tags ? tags.split(',') : [],
+            metaDescription,
+        };
+
+        if (req.file?.path) {
+            updatedFields.coverImage = req.file.path;
+        }
+
+        const blog = await Blog.findByIdAndUpdate(req.params.id, updatedFields, { new: true });
+        if (!blog) return res.status(404).json({ message: 'Blog not found' });
+
+        res.json({ message: 'Blog updated', blog });
+    } catch (err) {
+        console.error('Error updating blog:', err);
+        res.status(500).json({ message: 'Failed to update blog' });
+    }
+};
+
   
 
 // Get all blogs (admin list with optional search/pagination)
@@ -131,34 +161,7 @@ export const getBlogById = async (req, res) => {
 
 
 
-// Update blog
-export const updateBlog = async (req, res) => {
-    try {
-        const { title, contentBlocks, tags, metaDescription } = req.body;
-        const parsedBlocks = typeof contentBlocks === 'string' ? JSON.parse(contentBlocks) : contentBlocks;
 
-        const updatedFields = {
-            title,
-            slug: title.toLowerCase().replace(/\s+/g, '-'),
-            contentBlocks: parsedBlocks,
-            tags: tags ? tags.split(',') : [],
-            metaDescription,
-        };
-
-        if (req.file?.path) {
-            updatedFields.coverImage = req.file.path;
-        }
-
-        const blog = await Blog.findByIdAndUpdate(req.params.id, updatedFields, { new: true });
-        if (!blog) return res.status(404).json({ message: 'Blog not found' });
-
-        res.json({ message: 'Blog updated', blog });
-    } catch (err) {
-        console.error('Error updating blog:', err);
-        res.status(500).json({ message: 'Failed to update blog' });
-    }
-};
-  
 
 // Delete blog
 export const deleteBlog = async (req, res) => {
