@@ -3090,14 +3090,14 @@ import {
     isCarTyreGroup,
     isValidVendor
 } from "../utils/validators.js";
-// import cloudinary from 'cloudinary';
-// import axios from 'axios';
+import cloudinary from 'cloudinary';
+import axios from 'axios';
 
-// cloudinary.v2.config({
-//     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-//     api_key: process.env.CLOUDINARY_API_KEY,
-//     api_secret: process.env.CLOUDINARY_API_SECRET,
-// });
+cloudinary.v2.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 dotenv.config();
 
@@ -3203,41 +3203,41 @@ function groupRowsByProductKey(rows) {
 }
 
 
-// async function uploadToCloudinary(imageUrl, filename) {
-//     try {
-//         const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 60000 });
-//         return await new Promise((resolve, reject) => {
-//             const uploadStream = cloudinary.v2.uploader.upload_stream(
-//                 {
-//                     resource_type: "image",
-//                     public_id: `products/${filename}`,
-//                     overwrite: true,
-//                     folder: "products-images",
-//                 },
-//                 (error, result) => {
-//                     if (error) {
-//                         reject(error);
-//                     } else {
-//                         resolve(result);
-//                     }
-//                 }
-//             );
-//             uploadStream.end(response.data);
-//         });
-//     } catch (err) {
-//         // More debug logging
-//         if (err.response) {
-//             console.error(`[Cloudinary] Download failed: ${imageUrl}, HTTP ${err.response.status}`);
-//         } else if (err.code === 'ECONNRESET') {
-//             console.error(`[Cloudinary] Download failed: ${imageUrl}, ECONNRESET`);
-//         } else if (err.code === 'ETIMEDOUT') {
-//             console.error(`[Cloudinary] Download failed: ${imageUrl}, ETIMEDOUT`);
-//         } else {
-//             console.error(`[Cloudinary] Download failed: ${imageUrl}, ${err.message}`);
-//         }
-//         throw err; // So your import will catch it and log per-product
-//     }
-// }
+async function uploadToCloudinary(imageUrl, filename) {
+    try {
+        const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 60000 });
+        return await new Promise((resolve, reject) => {
+            const uploadStream = cloudinary.v2.uploader.upload_stream(
+                {
+                    resource_type: "image",
+                    public_id: `products/${filename}`,
+                    overwrite: true,
+                    folder: "products-images",
+                },
+                (error, result) => {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(result);
+                    }
+                }
+            );
+            uploadStream.end(response.data);
+        });
+    } catch (err) {
+        // More debug logging
+        if (err.response) {
+            console.error(`[Cloudinary] Download failed: ${imageUrl}, HTTP ${err.response.status}`);
+        } else if (err.code === 'ECONNRESET') {
+            console.error(`[Cloudinary] Download failed: ${imageUrl}, ECONNRESET`);
+        } else if (err.code === 'ETIMEDOUT') {
+            console.error(`[Cloudinary] Download failed: ${imageUrl}, ETIMEDOUT`);
+        } else {
+            console.error(`[Cloudinary] Download failed: ${imageUrl}, ${err.message}`);
+        }
+        throw err; // So your import will catch it and log per-product
+    }
+}
 
 
 
@@ -3341,37 +3341,37 @@ export async function importAWINCsv(filePath) {
                     );
                     if (!masterRow) masterRow = vendorRows[0];
 
-                    // // 1. Get the best available image URL from product row
-                    // // Step 1: Only for reifen.com masterRow
-                    // const isReifen = (masterRow["merchant_name"] || '').trim().toLowerCase() === "reifen.com";
-                    // let origImgUrl =
-                    //     masterRow["merchant_image_url"] ||
-                    //     masterRow["aw_image_url"] ||
-                    //     masterRow["aw_thumb_url"] ||
-                    //     masterRow["large_image"] ||
-                    //     masterRow["alternate_image"] ||
-                    //     masterRow["alternate_image_two"] ||
-                    //     masterRow["alternate_image_three"] ||
-                    //     masterRow["alternate_image_four"];
-                    // // 2. Upload to Cloudinary (use EAN as public_id for deduplication)
-                    // let productImageCloudinaryUrl = origImgUrl; // fallback to original if upload fails
-                    // if (isReifen && productImageCloudinaryUrl) {
-                    //     try {
-                    //         // Step 2: Download and upload to Cloudinary
-                    //         // Use EAN for unique filename
-                    //         const cloudinaryFileName = `${normalizeEAN(masterRow["ean"])}.webp`;
-                    //         const uploaded = await uploadToCloudinary(productImageCloudinaryUrl, cloudinaryFileName);
+                    // 1. Get the best available image URL from product row
+                    // Step 1: Only for reifen.com masterRow
+                    const isReifen = (masterRow["merchant_name"] || '').trim().toLowerCase() === "reifen.com";
+                    let origImgUrl =
+                        masterRow["merchant_image_url"] ||
+                        masterRow["aw_image_url"] ||
+                        masterRow["aw_thumb_url"] ||
+                        masterRow["large_image"] ||
+                        masterRow["alternate_image"] ||
+                        masterRow["alternate_image_two"] ||
+                        masterRow["alternate_image_three"] ||
+                        masterRow["alternate_image_four"];
+                    // 2. Upload to Cloudinary (use EAN as public_id for deduplication)
+                    let productImageCloudinaryUrl = origImgUrl; // fallback to original if upload fails
+                    if (isReifen && productImageCloudinaryUrl) {
+                        try {
+                            // Step 2: Download and upload to Cloudinary
+                            // Use EAN for unique filename
+                            const cloudinaryFileName = `${normalizeEAN(masterRow["ean"])}.webp`;
+                            const uploaded = await uploadToCloudinary(productImageCloudinaryUrl, cloudinaryFileName);
 
-                    //         if (uploaded && uploaded.secure_url) {
-                    //             productImageCloudinaryUrl = uploaded.secure_url;
-                    //             console.log(`[Cloudinary] Uploaded: ${cloudinaryFileName} for EAN: ${masterRow["ean"]}`);
-                    //         } else {
-                    //             console.log(`[Cloudinary] Failed for EAN: ${masterRow["ean"]}`);
-                    //         }
-                    //     } catch (err) {
-                    //         console.error(`[Cloudinary] Upload failed for EAN: ${masterRow["ean"]}: ${err.message}`);
-                    //     }
-                    // }
+                            if (uploaded && uploaded.secure_url) {
+                                productImageCloudinaryUrl = uploaded.secure_url;
+                                console.log(`[Cloudinary] Uploaded: ${cloudinaryFileName} for EAN: ${masterRow["ean"]}`);
+                            } else {
+                                console.log(`[Cloudinary] Failed for EAN: ${masterRow["ean"]}`);
+                            }
+                        } catch (err) {
+                            console.error(`[Cloudinary] Upload failed for EAN: ${masterRow["ean"]}: ${err.message}`);
+                        }
+                    }
                     // Compose offers (one per vendor)
                     const offers = vendorRows.map(row => ({
                         vendor: row["merchant_name"],
@@ -3416,8 +3416,8 @@ export async function importAWINCsv(filePath) {
                         category_name: masterRow["category_name"],
                         category_id: masterRow["category_id"],
                         // product_image: masterRow["merchant_image_url"] || masterRow["aw_image_url"] || masterRow["aw_thumb_url"] || masterRow["large_image"],
-                        product_image: masterRow["merchant_image_url"] || masterRow["aw_image_url"] || masterRow["aw_thumb_url"] || masterRow["large_image"] || masterRow["alternate_image"] || masterRow["alternate_image_two"] || masterRow["alternate_image_three"] || masterRow["alternate_image_four"],
-                        // product_image: productImageCloudinaryUrl,
+                        // product_image: masterRow["merchant_image_url"] || masterRow["aw_image_url"] || masterRow["aw_thumb_url"] || masterRow["large_image"] || masterRow["alternate_image"] || masterRow["alternate_image_two"] || masterRow["alternate_image_three"] || masterRow["alternate_image_four"],
+                        product_image: productImageCloudinaryUrl,
                         description: masterRow["description"],
                         product_affiliate_url: masterRow["aw_deep_link"],
                         product_url: cheapestVendorOffer ? cheapestVendorOffer.original_affiliate_url : masterRow["aw_deep_link"],
