@@ -222,7 +222,7 @@ dotenv.config();
 
 const AWIN_CSV_URL = process.env.AWIN_CSV_URL;
 const RETRY_DELAY_MS = 2 * 60 * 1000;
-const SUCCESS_DELAY_MS = 60 * 60 * 1000;
+const SUCCESS_DELAY_MS = 3 * 60 * 60 * 1000;
 const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
 
 let isRunning = false;

@@ -12,27 +12,27 @@ const EXT = ["webp", "png", "jpg", "jpeg", "svg"];
 export function findLogo(type, name) {
     // If name is not provided, return the default logo
     if (!name) {
-        console.log(`No name provided for ${type}. Returning default logo.`);
+        // console.log(`No name provided for ${type}. Returning default logo.`);
         return ``;
     }
 
     // Slugify the vendor name to create the filename
     const slug = slugify(name);
-    console.log(`Slugified name for ${type}: ${slug}`);
+    // console.log(`Slugified name for ${type}: ${slug}`);
 
     // Loop through possible file extensions
     for (const ext of EXT) {
         const localPath = path.join(process.cwd(), "src", "images", type, `${slug}.${ext}`);
-        console.log(`Checking for logo at path: ${localPath}`);
+        // console.log(`Checking for logo at path: ${localPath}`);
 
         // Check if the file exists in the directory
         if (fs.existsSync(localPath)) {
-            console.log(`Found logo for ${name} at ${localPath}`);
+            // console.log(`Found logo for ${name} at ${localPath}`);
             return `/images/${type}/${slug}.${ext}`;  // Return the relative path for the logo
         }
     }
 
     // If no logo found, return the default logo
-    console.log(`No logo found for ${name}. Returning default.`);
+    // console.log(`No logo found for ${name}. Returning default.`);
     return ``;
 }

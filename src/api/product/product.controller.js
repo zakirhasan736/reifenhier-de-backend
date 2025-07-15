@@ -1,8 +1,7 @@
 import FeaturedSettings from '../../models/FeaturedSettings.js';
 import Product from '../../models/product.js';
 import { startCsvImportAsync } from "./importAWINCsv.js";
-import Redis from 'ioredis';
-import hash from 'object-hash';
+import { getCompetitors } from '../utils/competitor.js';
 
 // In your product controller file
 // export const productLists = async (req, res) => {
@@ -395,25 +394,212 @@ import hash from 'object-hash';
 //         return res.status(500).json({ message: 'Server error' });
 //     }
 // };
+
+  
+
+// export const productLists = async (req, res) => {
+//     try {
+//         const {
+//             page = 1,
+//             limit = 12,
+//             sort = "createdAt",
+//             order = "desc",
+//         } = req.query;
+
+//         const toArray = (val) =>
+//             Array.isArray(val)
+//                 ? val
+//                 : val
+//                     ? typeof val === "string"
+//                         ? val.split(",").filter(Boolean)
+//                         : [val]
+//                     : [];
+
+//         const filters = {
+//             ...(req.query.category && {
+//                 merchant_product_third_category: {
+//                     $in: toArray(req.query.category),
+//                 },
+//             }),
+//             ...(req.query.brand && {
+//                 brand_name: { $in: toArray(req.query.brand) },
+//             }),
+//             ...(req.query.width && {
+//                 width: { $in: toArray(req.query.width) },
+//             }),
+//             ...(req.query.height && {
+//                 height: { $in: toArray(req.query.height) },
+//             }),
+//             ...(req.query.diameter && {
+//                 diameter: { $in: toArray(req.query.diameter) },
+//             }),
+//             ...(req.query.speedIndex && {
+//                 speedIndex: { $in: toArray(req.query.speedIndex) },
+//             }),
+//             ...(req.query.lastIndex && {
+//                 lastIndex: { $in: toArray(req.query.lastIndex) },
+//             }),
+//             ...(req.query.noise && {
+//                 noise_class: { $in: toArray(req.query.noise) },
+//             }),
+//             ...(req.query.fuelClass && {
+//                 fuel_class: { $in: toArray(req.query.fuelClass) },
+//             }),
+//             ...(req.query.wetGrip && {
+//                 wet_grip: { $in: toArray(req.query.wetGrip) },
+//             }),
+//         };
+
+//         const skip = (parseInt(page) - 1) * parseInt(limit);
+//         const sortOption = { [sort]: order === "asc" ? 1 : -1 };
+
+//         const fieldMap = {
+//             categories: "merchant_product_third_category",
+//             brands: "brand_name",
+//             widths: "width",
+//             heights: "height",
+//             diameters: "diameter",
+//             speedIndexes: "speedIndex",
+//             lastIndexes: "lastIndex",
+//             noises: "noise_class",
+//             fuelClasses: "fuel_class",
+//             wetGrips: "wet_grip",
+//         };
+
+//         const facetStage = {};
+//         for (const [facetName, field] of Object.entries(fieldMap)) {
+//             const filterCopy = { ...filters };
+//             delete filterCopy[field];
+//             facetStage[facetName] = [
+//                 { $match: filterCopy },
+//                 { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+//                 { $project: { name: "$_id", count: 1, _id: 0 } },
+//             ];
+//         }
+
+//         facetStage.prices = [
+//             { $match: filters },
+//             {
+//                 $group: {
+//                     _id: null,
+//                     min: { $min: "$search_price" },
+//                     max: { $max: "$search_price" },
+//                 },
+//             },
+//         ];
+
+//         const [productsRaw, total, agg] = await Promise.all([
+//             Product.find(filters)
+//                 .sort(sortOption)
+//                 .skip(skip)
+//                 .limit(+limit)
+//                 .select(
+//                     "brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price merchant_product_category_path merchant_product_second_category cheapest_offer speedIndex lastIndex width height diameter ean"
+//                 )
+//                 .lean(),
+//             Product.countDocuments(filters),
+//             Product.aggregate([{ $facet: facetStage }]),
+//         ]);
+
+//         const products = await Promise.all(
+//             productsRaw.map(async (p) => {
+//                 const relatedFilter = {
+//                     merchant_product_third_category: p.merchant_product_third_category,
+//                     width: p.width,
+//                     height: p.height,
+//                     diameter: p.diameter,
+//                     speedIndex: p.speedIndex,
+//                     lastIndex: p.lastIndex,
+//                     fuel_class: p.fuel_class,
+//                     noise_class: p.noise_class,
+//                     wet_grip: p.wet_grip,
+//                     ean: { $ne: p.ean },
+//                 };
+
+//                 const cheaperProducts = await Product.find(relatedFilter)
+//                     .sort({ search_price: 1 })
+//                     .limit(3)
+//                     .select("brand_name product_url _id product_name search_price")
+//                     .lean();
+
+//                 const related_cheaper = cheaperProducts.map((r) => ({
+//                     _id: r._id,
+//                     product_name: r.product_name,
+//                     brand_name: r.brand_name,
+//                     price: `${r.search_price.toFixed(2).replace(".", ",")} €`,
+//                     url: r.product_url,
+//                 }));
+
+//                 return {
+//                     ...p,
+//                     formatted_price:
+//                         typeof p.search_price === "number"
+//                             ? `${p.search_price.toFixed(2).replace(".", ",")} €`
+//                             : "0,00 €",
+//                     related_cheaper,
+//                 };
+//             })
+//         );
+
+//         const result = agg[0] || {};
+//         const priceData = result.prices?.[0] || { min: 0, max: 0 };
+
+//         return res.status(200).json({
+//             total,
+//             products,
+//             minPrices: priceData.min,
+//             maxPrices: priceData.max,
+//             filterGroups: {
+//                 categories: result.categories || [],
+//                 brands: result.brands || [],
+//                 widths: result.widths || [],
+//                 heights: result.heights || [],
+//                 diameters: result.diameters || [],
+//                 speedIndexes: result.speedIndexes || [],
+//                 lastIndexes: result.lastIndexes || [],
+//                 noises: result.noises || [],
+//                 fuelClasses: result.fuelClasses || [],
+//                 wetGrips: result.wetGrips || [],
+//             },
+//         });
+//     } catch (err) {
+//         console.error("Error in productLists:", err);
+//         return res.status(500).json({ message: "Server error" });
+//     }
+// };
+
+
+// Make sure you have this index in MongoDB for best performance:
+// db.products.createIndex({
+//   merchant_product_third_category: 1,
+//   product_category: 1,
+//   width: 1,
+//   height: 1,
+//   diameter: 1,
+//   speedIndex: 1,
+//   lastIndex: 1,
+//   search_price: 1
+// })
+
 export const productLists = async (req, res) => {
     try {
         const {
             page = 1,
             limit = 12,
-            sort = 'createdAt',
-            order = 'desc',
+            sort = "createdAt",
+            order = "desc",
         } = req.query;
 
-        // Ensure array handling from query
-        const toArray = val =>
+        const toArray = (val) =>
             Array.isArray(val)
                 ? val
                 : val
-                    ? typeof val === 'string'
-                        ? val.split(',').filter(Boolean)
+                    ? typeof val === "string"
+                        ? val.split(",").filter(Boolean)
                         : [val]
                     : [];
 
+        // Build filters for main product search
         const filters = {
             ...(req.query.category && {
                 merchant_product_third_category: { $in: toArray(req.query.category) },
@@ -448,59 +634,80 @@ export const productLists = async (req, res) => {
         };
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
-        const sortOption = { [sort]: order === 'asc' ? 1 : -1 };
+        const sortOption = { [sort]: order === "asc" ? 1 : -1 };
 
-        // Fields for faceted grouping
+        // Faceted search (filters)
         const fieldMap = {
-            categories: 'merchant_product_third_category',
-            brands: 'brand_name',
-            widths: 'width',
-            heights: 'height',
-            diameters: 'diameter',
-            speedIndexes: 'speedIndex',
-            lastIndexes: 'lastIndex',
-            noises: 'noise_class',
-            fuelClasses: 'fuel_class',
-            wetGrips: 'wet_grip',
+            categories: "merchant_product_third_category",
+            brands: "brand_name",
+            widths: "width",
+            heights: "height",
+            diameters: "diameter",
+            speedIndexes: "speedIndex",
+            lastIndexes: "lastIndex",
+            noises: "noise_class",
+            fuelClasses: "fuel_class",
+            wetGrips: "wet_grip",
         };
 
-        // Create dynamic facet stages
         const facetStage = {};
         for (const [facetName, field] of Object.entries(fieldMap)) {
             const filterCopy = { ...filters };
-            delete filterCopy[field]; // Don't filter on the same field you're grouping
+            delete filterCopy[field];
             facetStage[facetName] = [
                 { $match: filterCopy },
                 { $group: { _id: `$${field}`, count: { $sum: 1 } } },
-                { $project: { name: '$_id', count: 1, _id: 0 } },
+                { $project: { name: "$_id", count: 1, _id: 0 } },
             ];
         }
 
-        // Add price range aggregation
         facetStage.prices = [
             { $match: filters },
             {
                 $group: {
                     _id: null,
-                    min: { $min: '$search_price' },
-                    max: { $max: '$search_price' },
+                    min: { $min: "$search_price" },
+                    max: { $max: "$search_price" },
                 },
             },
         ];
 
-        // Fetch data
-        const [products, total, agg] = await Promise.all([
+        // 1. Fetch main products
+        const [productsRaw, total, agg] = await Promise.all([
             Product.find(filters)
                 .sort(sortOption)
                 .skip(skip)
                 .limit(+limit)
                 .select(
-                    'brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price merchant_product_category_path merchant_product_second_category'
+                    "brand_logo fuel_class in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
                 )
                 .lean(),
             Product.countDocuments(filters),
             Product.aggregate([{ $facet: facetStage }]),
         ]);
+
+        // Now use the reusable function per product:
+        const products = await Promise.all(productsRaw.map(async (product) => ({
+            ...product,
+            cheapest_offer: typeof product.cheapest_offer === "number"
+                ? `${product.cheapest_offer.toFixed(2).replace(".", ",")}`
+                : product.cheapest_offer || "0,00",
+            expensive_offer: typeof product.expensive_offer === "number"
+                ? `${product.expensive_offer.toFixed(2).replace(".", ",")}`
+                : product.expensive_offer || "0,00",
+            search_price: typeof product.search_price === "number"
+                ? `${product.search_price.toFixed(2).replace(".", ",")}`
+                : product.search_price || "0,00",
+            main_price: typeof product.main_price === "number"
+                ? `${product.main_price.toFixed(2).replace(".", ",")}`
+                : product.main_price || "0,00",
+            savings_percent: product.savings_percent || "0%",
+            total_offers: product.total_offers || (product.offers?.length || 1),
+            zum_angebot_url: product.offers?.[0]?.aw_deep_link || "",
+            vendor_name: product.offers?.[0]?.vendor || "",
+            vendor_logo: product.offers?.[0]?.vendor_logo || "",
+            related_cheaper: await getCompetitors(product, 3)
+        })));
 
         const result = agg[0] || {};
         const priceData = result.prices?.[0] || { min: 0, max: 0 };
@@ -524,11 +731,375 @@ export const productLists = async (req, res) => {
             },
         });
     } catch (err) {
-        console.error('Error in productLists:', err);
-        return res.status(500).json({ message: 'Server error' });
+        console.error("Error in productLists:", err);
+        return res.status(500).json({ message: "Server error" });
     }
 };
-  
+
+
+
+// export const productLists = async (req, res) => {
+//     try {
+//         const {
+//             page = 1,
+//             limit = 12,
+//             sort = "createdAt",
+//             order = "desc",
+//         } = req.query;
+
+//         const toArray = (val) =>
+//             Array.isArray(val)
+//                 ? val
+//                 : val
+//                     ? typeof val === "string"
+//                         ? val.split(",").filter(Boolean)
+//                         : [val]
+//                     : [];
+
+//         // Build filters for search
+//         const filters = {
+//             ...(req.query.category && {
+//                 merchant_product_third_category: { $in: toArray(req.query.category) },
+//             }),
+//             ...(req.query.brand && {
+//                 brand_name: { $in: toArray(req.query.brand) },
+//             }),
+//             ...(req.query.width && {
+//                 width: { $in: toArray(req.query.width) },
+//             }),
+//             ...(req.query.height && {
+//                 height: { $in: toArray(req.query.height) },
+//             }),
+//             ...(req.query.diameter && {
+//                 diameter: { $in: toArray(req.query.diameter) },
+//             }),
+//             ...(req.query.speedIndex && {
+//                 speedIndex: { $in: toArray(req.query.speedIndex) },
+//             }),
+//             ...(req.query.lastIndex && {
+//                 lastIndex: { $in: toArray(req.query.lastIndex) },
+//             }),
+//             ...(req.query.noise && {
+//                 noise_class: { $in: toArray(req.query.noise) },
+//             }),
+//             ...(req.query.fuelClass && {
+//                 fuel_class: { $in: toArray(req.query.fuelClass) },
+//             }),
+//             ...(req.query.wetGrip && {
+//                 wet_grip: { $in: toArray(req.query.wetGrip) },
+//             }),
+//         };
+
+//         const skip = (parseInt(page) - 1) * parseInt(limit);
+//         const sortOption = { [sort]: order === "asc" ? 1 : -1 };
+
+//         // For faceted search (filters)
+//         const fieldMap = {
+//             categories: "merchant_product_third_category",
+//             brands: "brand_name",
+//             widths: "width",
+//             heights: "height",
+//             diameters: "diameter",
+//             speedIndexes: "speedIndex",
+//             lastIndexes: "lastIndex",
+//             noises: "noise_class",
+//             fuelClasses: "fuel_class",
+//             wetGrips: "wet_grip",
+//         };
+
+//         const facetStage = {};
+//         for (const [facetName, field] of Object.entries(fieldMap)) {
+//             const filterCopy = { ...filters };
+//             delete filterCopy[field];
+//             facetStage[facetName] = [
+//                 { $match: filterCopy },
+//                 { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+//                 { $project: { name: "$_id", count: 1, _id: 0 } },
+//             ];
+//         }
+
+//         facetStage.prices = [
+//             { $match: filters },
+//             {
+//                 $group: {
+//                     _id: null,
+//                     min: { $min: "$search_price" },
+//                     max: { $max: "$search_price" },
+//                 },
+//             },
+//         ];
+
+//         // Main data fetch (products, count, facets)
+//         const [productsRaw, total, agg] = await Promise.all([
+//             Product.find(filters)
+//                 .sort(sortOption)
+//                 .skip(skip)
+//                 .limit(+limit)
+//                 .select(
+//                     "brand_logo fuel_class in_stock product_image related_cheaper savings_amount wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name main_price search_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
+//                 )
+//                 .lean(),
+//             Product.countDocuments(filters),
+//             Product.aggregate([{ $facet: facetStage }]),
+//         ]);
+
+//         // For each product, fetch up to 3 cheaper related products (by brand, lowest per brand)
+//         const products = await Promise.all(
+//             productsRaw.map(async (p) => {
+//                 const relatedFilter = {
+//                     merchant_product_third_category: p.merchant_product_third_category,
+//                     product_category: p.product_category,
+//                     width: p.width,
+//                     height: p.height,
+//                     diameter: p.diameter,
+//                     speedIndex: p.speedIndex,
+//                     lastIndex: p.lastIndex,
+//                     _id: { $ne: p._id }, // exclude self by MongoDB _id
+//                 };
+
+//                 // Find all related products (not limited to 3 yet)
+//                 const relatedProducts = await Product.find(relatedFilter)
+//                     .sort({ search_price: 1 })
+//                     .select("_id brand_name product_name product_url search_price")
+//                     .lean();
+
+//                 // Group by brand, keep only the lowest price per brand
+//                 const brandMap = new Map();
+//                 for (const prod of relatedProducts) {
+//                     if (!prod.brand_name) continue;
+//                     if (
+//                         !brandMap.has(prod.brand_name) ||
+//                         (typeof prod.search_price === 'number' && prod.search_price < brandMap.get(prod.brand_name).search_price)
+//                     ) {
+//                         brandMap.set(prod.brand_name, prod);
+//                     }
+//                 }
+//                 // Sort by price, pick max 3
+//                 const cheapestPerBrand = Array.from(brandMap.values())
+//                     .sort((a, b) => (a.search_price || 0) - (b.search_price || 0))
+//                     .slice(0, 3);
+
+//                 // Utility function for price formatting
+//                 const formatPrice = (value) =>
+//                     typeof value === "number"
+//                         ? `${value.toFixed(2).replace(".", ",")}`
+//                         : "0,00";
+
+//                 const cheapest_offer = formatPrice(p.cheapest_offer);
+//                 const search_price = formatPrice(p.search_price);
+//                 const main_price = formatPrice(p.main_price);
+//                 const expensive_offer = formatPrice(p.expensive_offer);
+
+//                 return {
+//                     ...p,
+//                     cheapest_offer,
+//                     expensive_offer,
+//                     search_price,
+//                     main_price,
+//                     savings_percent: p.savings_percent || "0%",
+//                     total_offers: p.total_offers || (p.offers?.length || 1),
+//                     zum_angebot_url: p.offers?.[0]?.aw_deep_link || "",
+//                     vendor_name: p.offers?.[0]?.vendor || "",
+//                     vendor_logo: p.offers?.[0]?.vendor_logo || "",
+//                     // Array of up to 3 related cheapest (by brand)
+//                     related_cheaper: cheapestPerBrand.map((r) => ({
+//                         _id: r._id,
+//                         brand_name: r.brand_name,
+//                         product_name: r.product_name,
+//                         url: r.product_url,
+//                         price: typeof r.search_price === "number"
+//                             ? `${r.search_price.toFixed(2).replace(".", ",")}`
+//                             : "0,00",
+//                     })),
+//                 };
+//             })
+//         );
+
+//         const result = agg[0] || {};
+//         const priceData = result.prices?.[0] || { min: 0, max: 0 };
+
+//         return res.status(200).json({
+//             total,
+//             products,
+//             minPrices: priceData.min,
+//             maxPrices: priceData.max,
+//             filterGroups: {
+//                 categories: result.categories || [],
+//                 brands: result.brands || [],
+//                 widths: result.widths || [],
+//                 heights: result.heights || [],
+//                 diameters: result.diameters || [],
+//                 speedIndexes: result.speedIndexes || [],
+//                 lastIndexes: result.lastIndexes || [],
+//                 noises: result.noises || [],
+//                 fuelClasses: result.fuelClasses || [],
+//                 wetGrips: result.wetGrips || [],
+//             },
+//         });
+//     } catch (err) {
+//         console.error("Error in productLists:", err);
+//         return res.status(500).json({ message: "Server error" });
+//     }
+// };
+
+ 
+// export const productLists = async (req, res) => {
+//     try {
+//         const {
+//             page = 1,
+//             limit = 12,
+//             sort = "createdAt",
+//             order = "desc",
+//         } = req.query;
+
+//         const toArray = (val) =>
+//             Array.isArray(val)
+//                 ? val
+//                 : val
+//                     ? typeof val === "string"
+//                         ? val.split(",").filter(Boolean)
+//                         : [val]
+//                     : [];
+
+//         // Build filters for search
+//         const filters = {
+//             ...(req.query.category && {
+//                 merchant_product_third_category: { $in: toArray(req.query.category) },
+//             }),
+//             ...(req.query.brand && {
+//                 brand_name: { $in: toArray(req.query.brand) },
+//             }),
+//             ...(req.query.width && {
+//                 width: { $in: toArray(req.query.width) },
+//             }),
+//             ...(req.query.height && {
+//                 height: { $in: toArray(req.query.height) },
+//             }),
+//             ...(req.query.diameter && {
+//                 diameter: { $in: toArray(req.query.diameter) },
+//             }),
+//             ...(req.query.speedIndex && {
+//                 speedIndex: { $in: toArray(req.query.speedIndex) },
+//             }),
+//             ...(req.query.lastIndex && {
+//                 lastIndex: { $in: toArray(req.query.lastIndex) },
+//             }),
+//             ...(req.query.noise && {
+//                 noise_class: { $in: toArray(req.query.noise) },
+//             }),
+//             ...(req.query.fuelClass && {
+//                 fuel_class: { $in: toArray(req.query.fuelClass) },
+//             }),
+//             ...(req.query.wetGrip && {
+//                 wet_grip: { $in: toArray(req.query.wetGrip) },
+//             }),
+//         };
+
+//         const skip = (parseInt(page) - 1) * parseInt(limit);
+//         const sortOption = { [sort]: order === "asc" ? 1 : -1 };
+
+//         // For faceted search (filters)
+//         const fieldMap = {
+//             categories: "merchant_product_third_category",
+//             brands: "brand_name",
+//             widths: "width",
+//             heights: "height",
+//             diameters: "diameter",
+//             speedIndexes: "speedIndex",
+//             lastIndexes: "lastIndex",
+//             noises: "noise_class",
+//             fuelClasses: "fuel_class",
+//             wetGrips: "wet_grip",
+//         };
+
+//         const facetStage = {};
+//         for (const [facetName, field] of Object.entries(fieldMap)) {
+//             const filterCopy = { ...filters };
+//             delete filterCopy[field];
+//             facetStage[facetName] = [
+//                 { $match: filterCopy },
+//                 { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+//                 { $project: { name: "$_id", count: 1, _id: 0 } },
+//             ];
+//         }
+
+//         facetStage.prices = [
+//             { $match: filters },
+//             {
+//                 $group: {
+//                     _id: null,
+//                     min: { $min: "$search_price" },
+//                     max: { $max: "$search_price" },
+//                 },
+//             },
+//         ];
+
+//         // Main data fetch (products, count, facets)
+//         const [productsRaw, total, agg] = await Promise.all([
+//             Product.find(filters)
+//                 .sort(sortOption)
+//                 .skip(skip)
+//                 .limit(+limit)
+//                 .select(
+//                     "brand_logo fuel_class in_stock product_image related_cheaper savings_amount wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name main_price search_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
+//                 )
+//                 .lean(),
+//             Product.countDocuments(filters),
+//             Product.aggregate([{ $facet: facetStage }]),
+//         ]);
+
+//         // DRY logic: use the helper for all products
+//         const products = await Promise.all(
+//             productsRaw.map(async (p) => {
+//                 // Utility function for price formatting
+//                 const formatPrice = (value) =>
+//                     typeof value === "number"
+//                         ? `${value.toFixed(2).replace(".", ",")}`
+//                         : "0,00";
+
+//                 return {
+//                     ...p,
+//                     cheapest_offer: formatPrice(p.cheapest_offer),
+//                     expensive_offer: formatPrice(p.expensive_offer),
+//                     search_price: formatPrice(p.search_price),
+//                     main_price: formatPrice(p.main_price),
+//                     savings_percent: p.savings_percent || "0%",
+//                     total_offers: p.total_offers || (p.offers?.length || 1),
+//                     zum_angebot_url: p.offers?.[0]?.aw_deep_link || "",
+//                     vendor_name: p.offers?.[0]?.vendor || "",
+//                     vendor_logo: p.offers?.[0]?.vendor_logo || "",
+//                     related_cheaper: await findRelatedCheaperProducts(p, 3),
+//                 };
+//             })
+//         );
+
+//         const result = agg[0] || {};
+//         const priceData = result.prices?.[0] || { min: 0, max: 0 };
+
+//         return res.status(200).json({
+//             total,
+//             products,
+//             minPrices: priceData.min,
+//             maxPrices: priceData.max,
+//             filterGroups: {
+//                 categories: result.categories || [],
+//                 brands: result.brands || [],
+//                 widths: result.widths || [],
+//                 heights: result.heights || [],
+//                 diameters: result.diameters || [],
+//                 speedIndexes: result.speedIndexes || [],
+//                 lastIndexes: result.lastIndexes || [],
+//                 noises: result.noises || [],
+//                 fuelClasses: result.fuelClasses || [],
+//                 wetGrips: result.wetGrips || [],
+//             },
+//         });
+//     } catch (err) {
+//         console.error("Error in productLists:", err);
+//         return res.status(500).json({ message: "Server error" });
+//     }
+// };
+
 
 // ========================================
 const relatedProductsCache = new Map();
@@ -548,7 +1119,15 @@ const getCachedRelatedProducts = (key) => {
 const setCachedRelatedProducts = (key, data) => {
     relatedProductsCache.set(key, { data, timestamp: Date.now() });
 };
-
+// --- UTIL: Price formatting ---
+function formatPrice(value) {
+    if (typeof value === "number") return value.toFixed(2).replace(".", ",");
+    if (!value || value === "-") return "0,00";
+    const n = parseFloat(value);
+    if (!isNaN(n)) return n.toFixed(2).replace(".", ",");
+    return "0,00";
+}
+  
 export const getProductDetails = async (req, res) => {
     const { productId } = req.params;
 
@@ -593,17 +1172,44 @@ export const getProductDetails = async (req, res) => {
                 { ean: productId },
                 { aw_product_id: productId }
             ]
-        });
+        }).lean();
 
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
 
-        // Cache key based on filters
+        // FORMAT MAIN PRODUCT PRICES
+        const formattedProduct = {
+            ...product,
+            search_price: formatPrice(product.search_price),
+            main_price: formatPrice(product.main_price),
+            cheapest_offer: formatPrice(product.cheapest_offer),
+            expensive_offer: formatPrice(product.expensive_offer),
+        };
+
+        // FORMAT OFFERS IN MAIN PRODUCT
+        if (Array.isArray(product.offers)) {
+            formattedProduct.offers = product.offers.map(offer => ({
+                ...offer,
+                price: formatPrice(offer.price),
+            }));
+        }
+
+        // Cache logic (if you use caching)
         const cacheKey = `related:${product._id}`;
-        const cached = getCachedRelatedProducts(cacheKey);
+        const cached = getCachedRelatedProducts?.(cacheKey);
         if (cached) {
-            return res.status(200).json({ product, relatedProducts: cached });
+            // Also format prices in cached related products
+            const formattedRelated = cached.map(p => ({
+                ...p,
+                search_price: formatPrice(p.search_price),
+                cheapest_offer: formatPrice(p.cheapest_offer),
+                expensive_offer: formatPrice(p.expensive_offer),
+                offers: Array.isArray(p.offers)
+                    ? p.offers.map(o => ({ ...o, price: formatPrice(o.price) }))
+                    : []
+            }));
+            return res.status(200).json({ product: formattedProduct, relatedProducts: formattedRelated });
         }
 
         const { width, height, diameter } = parseTyreDimensions(product.dimensions || '');
@@ -623,7 +1229,7 @@ export const getProductDetails = async (req, res) => {
 
         // Fetch all matching
         const allMatchingProducts = await Product.find(relatedFilter)
-            .select('product_name brand_name brand_logo dimensions search_price product_image createdAt fuel_class wet_grip noise_class speedIndex lastIndex')
+            .select('product_name brand_name brand_logo dimensions search_price product_image merchant_product_third_category product_url in_stock createdAt fuel_class wet_grip noise_class speedIndex lastIndex average_rating review_count cheapest_offer expensive_offer savings_percent total_offers offers')
             .sort({ createdAt: -1, search_price: 1 }) // sort by newest and lowest price
             .lean();
 
@@ -635,13 +1241,21 @@ export const getProductDetails = async (req, res) => {
             }
             if (brandMap.size >= 10) break;
         }
+        // Format related products
+        const relatedProducts = Array.from(brandMap.values()).map(p => ({
+            ...p,
+            search_price: formatPrice(p.search_price),
+            cheapest_offer: formatPrice(p.cheapest_offer),
+            expensive_offer: formatPrice(p.expensive_offer),
+            offers: Array.isArray(p.offers)
+                ? p.offers.map(o => ({ ...o, price: formatPrice(o.price) }))
+                : []
+        }));
 
-        const relatedProducts = Array.from(brandMap.values());
+        // Save to cache if needed
+        setCachedRelatedProducts?.(cacheKey, relatedProducts);
 
-        // Store in cache
-        setCachedRelatedProducts(cacheKey, relatedProducts);
-
-        return res.status(200).json({ product, relatedProducts });
+        return res.status(200).json({ product: formattedProduct, relatedProducts });
     } catch (err) {
         console.error('Error fetching product details:', err);
         return res.status(500).json({ message: 'Server error' });
@@ -687,16 +1301,16 @@ export const getBrandSummary = async (req, res) => {
 
 export const getLatestProducts = async (req, res) => {
     try {
-        // Get top 500 most recent products (adjust as needed)
+        // 1. Get 500 latest products, but only their minimal info.
         const recentProducts = await Product.find({})
             .sort({ createdAt: -1 })
+            .select('brand_name brand_logo product_image product_name in_stock search_price merchant_product_third_category product_url fuel_class wet_grip noise_class dimensions average_rating review_count cheapest_offer expensive_offer savings_percent total_offers offers width height diameter speedIndex lastIndex product_category')
             .limit(500)
             .lean();
 
-        // Pick only the first product per brand
+        // 2. Pick only the first product per brand
         const seenBrands = new Set();
         const latestUnique = [];
-
         for (const product of recentProducts) {
             if (!seenBrands.has(product.brand_name)) {
                 seenBrands.add(product.brand_name);
@@ -709,9 +1323,93 @@ export const getLatestProducts = async (req, res) => {
             return res.status(404).json({ message: "No products found." });
         }
 
+        // 3. Prepare competitor facets for aggregation (STRICT filter first)
+        const competitorFacets = {};
+        latestUnique.forEach((product, idx) => {
+            const facetName = `p${idx}`;
+            const match = {
+                merchant_product_third_category: product.merchant_product_third_category,
+                product_category: product.product_category,
+                width: product.width,
+                height: product.height,
+                diameter: product.diameter,
+                speedIndex: product.speedIndex,
+                lastIndex: product.lastIndex,
+                _id: { $ne: product._id }
+            };
+            Object.keys(match).forEach(k => (match[k] == null || match[k] === "") && delete match[k]);
+            competitorFacets[facetName] = [
+                { $match: match },
+                { $sort: { search_price: 1 } },
+                {
+                    $group: {
+                        _id: "$brand_name",
+                        doc: { $first: "$$ROOT" }
+                    }
+                },
+                { $replaceRoot: { newRoot: "$doc" } },
+                { $sort: { search_price: 1 } },
+                { $limit: 3 },
+                {
+                    $project: {
+                        _id: 1,
+                        brand_name: 1,
+                        product_name: 1,
+                        product_url: 1,
+                        search_price: 1
+                    }
+                }
+            ];
+        });
+
+        // 4. Run one aggregate facet call for all competitors
+        const competitorAgg = await Product.aggregate([{ $facet: competitorFacets }]);
+        const competitors = competitorAgg[0];
+
+        // 5. Merge results & fallback to a BROADER search if any product gets less than 3
+        const productsWithCompetitors = await Promise.all(latestUnique.map(async (product, idx) => {
+            const facetName = `p${idx}`;
+            let competitorsList = (competitors[facetName] || []).filter(r => String(r._id) !== String(product._id));
+            if (competitorsList.length < 3) {
+                // Broader fallback: ignore speedIndex/lastIndex/height for extra competitors
+                const broadMatch = {
+                    merchant_product_third_category: product.merchant_product_third_category,
+                    product_category: product.product_category,
+                    width: product.width,
+                    diameter: product.diameter,
+                    _id: { $ne: product._id }
+                };
+                Object.keys(broadMatch).forEach(k => (broadMatch[k] == null || broadMatch[k] === "") && delete broadMatch[k]);
+                const broadCompetitors = await Product.find(broadMatch)
+                    .sort({ search_price: 1 })
+                    .select("_id brand_name product_name product_url search_price")
+                    .lean();
+                for (const c of broadCompetitors) {
+                    if (
+                        competitorsList.length < 3 &&
+                        !competitorsList.some(r => String(r._id) === String(c._id))
+                    ) {
+                        competitorsList.push(c);
+                    }
+                }
+            }
+            return {
+                ...product,
+                related_cheaper: (competitorsList || []).slice(0, 3).map(r => ({
+                    _id: r._id,
+                    brand_name: r.brand_name,
+                    product_name: r.product_name,
+                    url: r.product_url,
+                    price: typeof r.search_price === "number"
+                        ? r.search_price.toFixed(2).replace(".", ",")
+                        : "0,00",
+                }))
+            };
+        }));
+
         return res.status(200).json({
-            message: "Latest 10 products (one per brand)",
-            products: latestUnique,
+            message: "Latest 10 products (one per brand, with up to 3 competitors)",
+            products: productsWithCompetitors,
         });
 
     } catch (error) {
@@ -722,7 +1420,6 @@ export const getLatestProducts = async (req, res) => {
         });
     }
 };
-  
 
 
 
@@ -752,75 +1449,133 @@ export const getFeaturedProducts = async (req, res) => {
     try {
         const settings = await FeaturedSettings.findOne();
         const category = settings?.category || 'Winterreifen';
+        const maxBrands = settings?.max_brands || 10;
+        const competitorsPerProduct = settings?.competitors_per_product || 3;
 
-        const featuredProducts = await Product.aggregate([
-            { $match: { merchant_product_third_category: category } },
-            { $sort: { createdAt: -1 } },
-            {
-                $group: {
-                    _id: '$brand_name',
-                    product: { $first: '$$ROOT' },
+        // 1. Fetch up to 1000 from category, sorted by popularity (average_rating DESC), then newest
+        // Use an index on: {merchant_product_third_category:1, average_rating:-1, createdAt:-1, brand_name:1}
+        const allProducts = await Product.find({
+            merchant_product_third_category: {
+                $regex: new RegExp(`^${category}$`, 'i')
+            }
+        })
+            .sort({ average_rating: -1, createdAt: -1 }) // most popular, newest first
+            .limit(1000)
+            .select('brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price merchant_product_category_path merchant_product_second_category average_rating review_count cheapest_offer expensive_offer savings_percent total_offers offers in_stock width height diameter speedIndex lastIndex product_category')
+            .lean();
+
+        // 2. Pick the most popular product per brand (first in sorted list)
+        const uniqueBrandMap = new Map();
+        for (const product of allProducts) {
+            if (!uniqueBrandMap.has(product.brand_name)) {
+                uniqueBrandMap.set(product.brand_name, product);
+            }
+        }
+        const featuredProducts = Array.from(uniqueBrandMap.values()).slice(0, maxBrands);
+
+        // 3. Build competitor facets for all featured products (as before)
+        const competitorFacets = {};
+        featuredProducts.forEach((product, idx) => {
+            const facetName = `p${idx}`;
+            const match = {
+                merchant_product_third_category: product.merchant_product_third_category,
+                product_category: product.product_category,
+                width: product.width,
+                height: product.height,
+                diameter: product.diameter,
+                speedIndex: product.speedIndex,
+                lastIndex: product.lastIndex,
+                _id: { $ne: product._id }
+            };
+            Object.keys(match).forEach(k => (match[k] == null || match[k] === "") && delete match[k]);
+            competitorFacets[facetName] = [
+                { $match: match },
+                { $sort: { search_price: 1 } },
+                {
+                    $group: {
+                        _id: "$brand_name",
+                        doc: { $first: "$$ROOT" }
+                    }
                 },
-            },
-            { $replaceRoot: { newRoot: '$product' } },
-            { $limit: 10 },
-        ]);
+                { $replaceRoot: { newRoot: "$doc" } },
+                { $sort: { search_price: 1 } },
+                { $limit: competitorsPerProduct },
+                {
+                    $project: {
+                        _id: 1,
+                        brand_name: 1,
+                        product_name: 1,
+                        product_url: 1,
+                        search_price: 1,
+                        average_rating: 1
+                    }
+                }
+            ];
+        });
+
+        // 4. Facet aggregation for competitors
+        const competitorAgg = await Product.aggregate([{ $facet: competitorFacets }]);
+        const competitors = competitorAgg[0];
+
+        // 5. Merge results with competitor fallback if less than N competitors
+        const featuredWithCompetitors = await Promise.all(featuredProducts.map(async (product, idx) => {
+            const facetName = `p${idx}`;
+            let competitorsList = (competitors[facetName] || []).filter(r => String(r._id) !== String(product._id));
+            if (competitorsList.length < competitorsPerProduct) {
+                // Fallback: Broader match, ignore some fields
+                const broadMatch = {
+                    merchant_product_third_category: product.merchant_product_third_category,
+                    product_category: product.product_category,
+                    width: product.width,
+                    diameter: product.diameter,
+                    _id: { $ne: product._id }
+                };
+                Object.keys(broadMatch).forEach(k => (broadMatch[k] == null || broadMatch[k] === "") && delete broadMatch[k]);
+                const broadCompetitors = await Product.find(broadMatch)
+                    .sort({ search_price: 1 })
+                    .select("_id brand_name product_name product_url search_price average_rating")
+                    .lean();
+                for (const c of broadCompetitors) {
+                    if (
+                        competitorsList.length < competitorsPerProduct &&
+                        !competitorsList.some(r => String(r._id) === String(c._id))
+                    ) {
+                        competitorsList.push(c);
+                    }
+                }
+            }
+            return {
+                ...product,
+                related_cheaper: (competitorsList || []).slice(0, competitorsPerProduct).map(r => ({
+                    _id: r._id,
+                    brand_name: r.brand_name,
+                    product_name: r.product_name,
+                    url: r.product_url,
+                    price: typeof r.search_price === "number"
+                        ? r.search_price.toFixed(2).replace(".", ",")
+                        : "0,00",
+                    average_rating: r.average_rating
+                }))
+            };
+        }));
 
         res.status(200).json({
             title: settings?.section_title || 'Our recommendation',
             category,
-            products: featuredProducts,
+            products: featuredWithCompetitors
         });
+
     } catch (err) {
-        res.status(500).json({ message: 'Error loading featured products', error: err.message });
+        console.error("⚠️ Featured product fetch error:", err);
+        res.status(500).json({
+            message: 'Error loading featured products',
+            error: err.message
+        });
     }
 };
 
-// export const getLatestWinterProducts = async (req, res) => {
-//     try {
-//         const latestWinterProducts = await Product.aggregate([
-//             {
-//                 $match: {
-//                     merchant_product_third_category: 'Winterreifen',
-//                 },
-//             },
-//             {
-//                 $sort: {
-//                     createdAt: -1, // Ensure the latest products come first
-//                 },
-//             },
-//             {
-//                 $group: {
-//                     _id: '$brand_name',
-//                     product: { $first: '$$ROOT' }, // Pick the latest product per brand
-//                 },
-//             },
-//             {
-//                 $replaceRoot: { newRoot: '$product' },
-//             },
-//             {
-//                 $limit: 10,
-//             },
-//         ]);
 
-//         if (!latestWinterProducts.length) {
-//             return res
-//                 .status(404)
-//                 .json({ message: 'No winter products found.' });
-//         }
-
-//         return res.status(200).json({
-//             message: 'Latest 10 Winterreifen Products (one per brand)',
-//             products: latestWinterProducts,
-//         });
-//     } catch (error) {
-//         console.error('Error fetching latest winter products:', error);
-//         return res
-//             .status(500)
-//             .json({ message: 'Server error', error: error.message });
-//     }
-// };
-
+  
 export const GetFilterTyres = async (req, res) => {
     try {
         const { category, width, height, diameter } = req.query;

@@ -1,10 +1,12 @@
 // src/app.js
 import "./api/utils/cron-job.js";
+import "./api/utils/reviewScraperCron.js";
 import express from 'express';
 import cors from 'cors';
 import path from "path";
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
 import { connectDB } from './config/db.js';
 // import errorHandler from './middleware/errorHandler.js';
 
@@ -14,7 +16,7 @@ import authRoutes from './api/auth/auth.routes.js';
 import productRoutes from './api/product/product.routes.js';
 import vendorRoutes from './api/vendors/vendor.routes.js';
 import faqRoutes from './api/faq/faq.routes.js';
-// import tyreRoutes from './api/tyres/tyre.routes.js';
+import favoriteRoutes from './api/favorite/favorite.routes.js';
 // import offerRoutes from './api/offers/offer.routes.js';
 import blogRoutes from './api/blogs/blog.routes.js';
 // import campaignRoutes from './api/campaigns/campaign.routes.js';
@@ -27,7 +29,12 @@ connectDB();
 const app = express();
 
 // Middleware
-app.use(cors()); 
+const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+app.use(cookieParser());
+app.use(cors({
+    origin: allowedOrigin,
+    credentials: true,
+}));
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -37,7 +44,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/faq', faqRoutes);
-// app.use('/api/tyres', tyreRoutes);
+app.use('/api/favorites', favoriteRoutes);
 // app.use('/api/offers', offerRoutes);
 app.use('/api/blogs', blogRoutes);
 // app.use('/api/campaigns', campaignRoutes);
