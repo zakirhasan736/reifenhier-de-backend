@@ -32,7 +32,8 @@ const app = express();
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
 app.use(cookieParser());
 app.use(cors({
-    origin: allowedOrigin,
+    origin: "*",
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
     credentials: true,
 }));
 app.use(express.json());
