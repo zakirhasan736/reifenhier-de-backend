@@ -15,7 +15,7 @@ export const VENDOR_PAYMENT_ICONS = {
         "/images/icons/payments/Visa.png",
         "/images/icons/payments/Mastercard.png",
         "/images/icons/payments/paypal.svg",
-        "/images/icons/payments/Vorkasse.svg",
+        "/images/icons/payments/Vorkasse.png",
         "/images/icons/payments/sepa.png",
         "/images/icons/payments/Rechnung.png",
         "/images/icons/payments/apple-pay.png",

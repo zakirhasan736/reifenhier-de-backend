@@ -30,12 +30,30 @@ const app = express();
 
 // Middleware
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+// --- CORS CONFIG START --- //
+const allowedOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+    process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3001',
+].filter(Boolean);
 app.use(cookieParser());
 app.use(cors({
-    origin: "*",
-    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        } else {
+            return callback(
+                new Error(
+                    `CORS: Origin ${origin} not allowed. Allowed origins: ${allowedOrigins.join(", ")}`
+                )
+            );
+        }
+    },
     credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
 }));
+// --- CORS CONFIG END --- //
 app.use(express.json());
 app.use(morgan('dev'));
 

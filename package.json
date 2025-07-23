@@ -39,6 +39,7 @@
     "node-cron": "^4.1.0",
     "node-fetch": "^3.3.2",
     "object-hash": "^3.0.0",
+    "p-limit": "^6.2.0",
     "puppeteer": "^24.12.1",
     "react-beautiful-dnd": "^13.1.1",
     "sharp": "^0.34.2",

@@ -177,6 +177,7 @@ const ProductSchema = new mongoose.Schema({
     vendor_id: String,
     vendor_logo: String,
     aw_deep_link: String,
+    delivery_cost: String,
     payment_icons: [String],
   },
   base_price: String,
@@ -211,6 +212,7 @@ const ProductSchema = new mongoose.Schema({
   
   terms_of_contract: String,
   delivery_time: String,
+  delivery_cost: String,
   valid_from: String,
   valid_to: String,
   is_for_sale: String,
@@ -221,7 +223,6 @@ const ProductSchema = new mongoose.Schema({
   size_stock_amount: String,
   in_stock: String,
   stock_quantity: String,
-  number_available: String,
   number_available: String,
   noise_class: String,
   wet_grip: String,
