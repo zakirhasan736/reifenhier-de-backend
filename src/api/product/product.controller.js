@@ -1576,21 +1576,94 @@ export const getFeaturedProducts = async (req, res) => {
 
 
   
+// export const GetFilterTyres = async (req, res) => {
+//     try {
+//         const { category, width, height, diameter } = req.query;
+
+//         // Build the base match query
+//         const baseQuery = {};
+//         if (category) baseQuery.merchant_product_third_category = category;
+//         if (width) baseQuery.width = width;
+//         if (height) baseQuery.height = height;
+//         if (diameter) baseQuery.diameter = diameter;
+        
+//         // Helper function to build aggregation pipeline for a field
+//         const buildFacetPipeline = (fieldToGroup, removeFieldFromQuery) => {
+//             const matchStage = { ...baseQuery };
+//             delete matchStage[removeFieldFromQuery]; // Avoid filtering the same field we're grouping
+
+//             return [
+//                 { $match: matchStage },
+//                 {
+//                     $group: {
+//                         _id: `$${fieldToGroup}`,
+//                         count: { $sum: 1 },
+//                     },
+//                 },
+//                 {
+//                     $project: {
+//                         name: '$_id',
+//                         count: 1,
+//                         _id: 0,
+//                     },
+//                 },
+//                 {
+//                     $sort: { count: -1 },
+//                 },
+//             ];
+//         };
+
+//         // Aggregate all 4 filters in parallel using $facet
+//         const result = await Product.aggregate([
+//             {
+//                 $facet: {
+//                     categories: buildFacetPipeline('merchant_product_third_category', 'merchant_product_third_category'),
+//                     widths: buildFacetPipeline('width', 'width'),
+//                     heights: buildFacetPipeline('height', 'height'),
+//                     diameters: buildFacetPipeline('diameter', 'diameter'),
+//                 },
+//             },
+//         ]);
+
+//         const { categories, widths, heights, diameters } = result[0];
+
+//         return res.status(200).json({
+//             categories,
+//             widths,
+//             heights,
+//             diameters,
+//         });
+//     } catch (err) {
+//         console.error('Error in GetFilterTyres:', err);
+//         return res.status(500).json({ message: 'Server error', error: err.message });
+//     }
+// };
 export const GetFilterTyres = async (req, res) => {
     try {
-        const { category, width, height, diameter } = req.query;
+        const {
+            category,
+            width,
+            height,
+            diameter,
+            brand,
+            wetGrip,
+            fuelClass,
+            noise,
+        } = req.query;
 
-        // Build the base match query
         const baseQuery = {};
         if (category) baseQuery.merchant_product_third_category = category;
         if (width) baseQuery.width = width;
         if (height) baseQuery.height = height;
         if (diameter) baseQuery.diameter = diameter;
+        if (brand) baseQuery.brand = brand;
+        if (wetGrip) baseQuery.wetGrip = wetGrip;
+        if (fuelClass) baseQuery.fuelClass = fuelClass;
+        if (noise) baseQuery.noise = noise;
 
-        // Helper function to build aggregation pipeline for a field
         const buildFacetPipeline = (fieldToGroup, removeFieldFromQuery) => {
             const matchStage = { ...baseQuery };
-            delete matchStage[removeFieldFromQuery]; // Avoid filtering the same field we're grouping
+            delete matchStage[removeFieldFromQuery];
 
             return [
                 { $match: matchStage },
@@ -1613,7 +1686,6 @@ export const GetFilterTyres = async (req, res) => {
             ];
         };
 
-        // Aggregate all 4 filters in parallel using $facet
         const result = await Product.aggregate([
             {
                 $facet: {
@@ -1621,24 +1693,41 @@ export const GetFilterTyres = async (req, res) => {
                     widths: buildFacetPipeline('width', 'width'),
                     heights: buildFacetPipeline('height', 'height'),
                     diameters: buildFacetPipeline('diameter', 'diameter'),
+                    brands: buildFacetPipeline('brand_name', 'brand_name'),
+                    wetGrips: buildFacetPipeline('wet_grip', 'wet_grip'),
+                    fuelClasses: buildFacetPipeline('fuel_class', 'fuel_class'),
+                    noises: buildFacetPipeline('noise_class', 'noise_class'),
                 },
             },
         ]);
 
-        const { categories, widths, heights, diameters } = result[0];
+        const {
+            categories,
+            widths,
+            heights,
+            diameters,
+            brands,
+            wetGrips,
+            fuelClasses,
+            noises,
+        } = result[0];
 
         return res.status(200).json({
             categories,
             widths,
             heights,
             diameters,
+            brands,
+            wetGrips,
+            fuelClasses,
+            noises,
         });
     } catch (err) {
         console.error('Error in GetFilterTyres:', err);
         return res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
-  
+
 export const getSearchSuggestions = async (req, res) => {
     const { query } = req.query;
 

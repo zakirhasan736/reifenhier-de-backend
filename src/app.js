@@ -17,7 +17,7 @@ import productRoutes from './api/product/product.routes.js';
 import vendorRoutes from './api/vendors/vendor.routes.js';
 import faqRoutes from './api/faq/faq.routes.js';
 import favoriteRoutes from './api/favorite/favorite.routes.js';
-// import offerRoutes from './api/offers/offer.routes.js';
+import wishlistRoutes from './api/wishlist/wishlist.route.js';
 import blogRoutes from './api/blogs/blog.routes.js';
 // import campaignRoutes from './api/campaigns/campaign.routes.js';
 // import analyticsRoutes from './api/analytics/analytics.routes.js';
@@ -29,13 +29,12 @@ connectDB();
 const app = express();
 
 // Middleware
-const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+// const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
 // --- CORS CONFIG START --- //
 const allowedOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:3000',
     process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3001',
 ].filter(Boolean);
-app.use(cookieParser());
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl requests)
@@ -54,6 +53,7 @@ app.use(cors({
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
 }));
 // --- CORS CONFIG END --- //
+app.use(cookieParser());
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -64,7 +64,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/faq', faqRoutes);
 app.use('/api/favorites', favoriteRoutes);
-// app.use('/api/offers', offerRoutes);
+app.use('/api/wishlist', wishlistRoutes)
 app.use('/api/blogs', blogRoutes);
 // app.use('/api/campaigns', campaignRoutes);
 // app.use('/api/analytics', analyticsRoutes);
