@@ -501,7 +501,7 @@ export const getBrandSummary = async (req, res) => {
     }
 };
 
-
+ 
 // export const getLatestProducts = async (req, res) => {
 //     try {
 //         // 1. Get 500 latest products, but only their minimal info.

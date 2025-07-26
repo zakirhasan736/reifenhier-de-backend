@@ -426,9 +426,7 @@ export async function importAWINCsv(filePath) {
                 // ✅ Trigger competitor updater
                 spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
               
-                if (awinQueue.size > 0) {
-                    spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
-                }
+                spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
 
                 resolve();
             })
