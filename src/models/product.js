@@ -1,112 +1,3 @@
-// import mongoose from "mongoose";
-
-// // Embedded Offer schema (for multi-vendor)
-// const OfferSchema = new mongoose.Schema({
-//   vendor: String,                  
-//   vendor_id: String,
-//   vendor_logo: String, 
-//   product_name: String,
-//   brand_name: String,
-//   price: Number,
-//   currency: String,
-//   aw_deep_link: String,           
-//   original_affiliate_url: String,  
-//   delivery_cost: String,
-//   delivery_time: String,          
-//   merchant_deep_link: String,
-//   product_category: String,
-//   in_stock: Boolean,
-// }, { _id: false });
-
-// const ProductSchema = new mongoose.Schema({
-//   ean: { type: String, required: true, unique: true },
-//   aw_product_id: String,
-//   merchant_product_id: String,
-//   product_name: String,
-//   brand_name: String,
-//   brand_logo: String,           
-//   category_name: String,
-//   category_id: String,
-//   product_image: String,
-//   description: String,
-//   dimensions: String,
-//   colour: String,
-//   product_short_description: String,
-//   specifications: String,
-//   condition: String,
-//   product_model: String,
-//   model_number: String,
-//   keywords: String,
-//   promotional_text: String,
-//   product_type: String,
-//   vendor_name: String,
-//   commission_group: String,
-//   merchant_product_category_path: String,
-//   merchant_product_second_category: String,
-//   merchant_product_third_category: {
-//     type: String,
-//     set: val => val?.trim() || 'all sessions'
-//   },
-//   search_price: {
-//     type: Number,
-//     set: v => parseFloat(v) 
-//   },
-//   product_url: String,
-//   saving: String,
-//   savings_percent: String,
-//   base_price: String,
-//   base_price_amount: String,
-//   base_price_text: String,
-//   product_price_old: String,
-//   delivery_restrictions: String,
-//   delivery_weight: String,
-//   warranty: String,
-//   terms_of_contract: String,
-//   delivery_time: String,
-//   valid_from: String,
-//   valid_to: String,
-//   is_for_sale: String,
-//   web_offer: String,
-//   pre_order: String,
-//   stock_status: String,
-//   size_stock_status: String,
-//   size_stock_amount: String,
-//   in_stock: String,
-//   stock_quantity: String,
-//   reviews: String,
-//   average_rating: String,
-//   rating: String,
-//   number_available: String,
-//   noise_class: String,
-//   wet_grip: String,
-//   fuel_class: String,
-//   custom_4: String,
-//   custom_5: String,
-//   custom_6: String,
-//   custom_7: String,
-//   custom_8: String,
-//   custom_9: String,
-//   isbn: String,
-//   upc: String,
-//   mpn: String,
-//   width: String,
-//   height: String,
-//   diameter: String,
-//   speedIndex: String,  
-//   lastIndex: String,   
-//   parent_product_id: String,
-//   product_GTIN: String,
-//   basket_link: String,
-//   delivery_cost: String,
-//   delivery_time: String, 
-//   merchant_thumb_url: String,
-//   last_updated: String,
-//   last_imported_at: Date, 
-//   offers: [OfferSchema],          
-// }, { timestamps: true });
-
-
-// export default mongoose.models.Product || mongoose.model("Product", ProductSchema);
 
 import mongoose from "mongoose";
 
@@ -118,6 +9,8 @@ const OfferSchema = new mongoose.Schema({
   product_name: String,
   brand_name: String,
   price: Number,
+  savings_amount: Number,
+  savings_percent: String,
   payment_icons: [String], 
   average_rating: Number,
   review_count: Number,
@@ -130,7 +23,7 @@ const OfferSchema = new mongoose.Schema({
   product_category: String,
   in_stock: Boolean,
 }, { _id: false });
-
+ 
 // Main Product schema
 const ProductSchema = new mongoose.Schema({
   ean: { type: String, required: true, unique: true },
@@ -156,7 +49,7 @@ const ProductSchema = new mongoose.Schema({
   vendor: String,
   merchant_deep_link: String,
   commission_group: String,
-  merchant_product_category_path: String,
+  merchant_product_category_path: String, 
   merchant_product_second_category: String,
   merchant_product_third_category: {
     type: String,
@@ -259,6 +152,15 @@ const ProductSchema = new mongoose.Schema({
   last_updated: String,
   last_imported_at: Date,
   offers: [OfferSchema],
+  related_cheaper: [
+    {
+      _id: mongoose.Schema.Types.ObjectId,
+      brand_name: String,
+      product_name: String,
+      url: String, 
+      price: String,
+    }
+  ],
 }, { timestamps: true });
 
 export default mongoose.models.Product || mongoose.model("Product", ProductSchema);
