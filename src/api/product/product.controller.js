@@ -502,130 +502,6 @@ export const getBrandSummary = async (req, res) => {
 };
 
  
-// export const getLatestProducts = async (req, res) => {
-//     try {
-//         // 1. Get 500 latest products, but only their minimal info.
-//         const recentProducts = await Product.find({})
-//             .sort({ createdAt: -1 })
-//             .select('brand_name brand_logo product_image product_name in_stock search_price merchant_product_third_category product_url fuel_class wet_grip noise_class dimensions average_rating review_count cheapest_offer expensive_offer savings_percent total_offers offers width height diameter speedIndex lastIndex product_category')
-//             .limit(150)
-//             .lean();
-
-//         // 2. Pick only the first product per brand
-//         const seenBrands = new Set();
-//         const latestUnique = [];
-//         for (const product of recentProducts) {
-//             if (!seenBrands.has(product.brand_name)) {
-//                 seenBrands.add(product.brand_name);
-//                 latestUnique.push(product);
-//             }
-//             if (latestUnique.length === 10) break;
-//         }
-
-//         if (!latestUnique.length) {
-//             return res.status(404).json({ message: "No products found." });
-//         }
-
-//         // 3. Prepare competitor facets for aggregation (STRICT filter first)
-//         const competitorFacets = {};
-//         latestUnique.forEach((product, idx) => {
-//             const facetName = `p${idx}`;
-//             const match = {
-//                 merchant_product_third_category: product.merchant_product_third_category,
-//                 product_category: product.product_category,
-//                 width: product.width,
-//                 height: product.height,
-//                 diameter: product.diameter,
-//                 speedIndex: product.speedIndex,
-//                 lastIndex: product.lastIndex,
-//                 _id: { $ne: product._id }
-//             };
-//             Object.keys(match).forEach(k => (match[k] == null || match[k] === "") && delete match[k]);
-//             competitorFacets[facetName] = [
-//                 { $match: match },
-//                 { $sort: { search_price: 1 } },
-//                 {
-//                     $group: {
-//                         _id: "$brand_name",
-//                         doc: { $first: "$$ROOT" }
-//                     }
-//                 },
-//                 { $replaceRoot: { newRoot: "$doc" } },
-//                 { $sort: { search_price: 1 } },
-//                 { $limit: 3 },
-//                 {
-//                     $project: {
-//                         _id: 1,
-//                         brand_name: 1,
-//                         product_name: 1,
-//                         product_url: 1,
-//                         search_price: 1
-//                     }
-//                 }
-//             ];
-//         });
-
-//         // 4. Run one aggregate facet call for all competitors
-//         const competitorAgg = await Product.aggregate([{ $facet: competitorFacets }]);
-//         const competitors = competitorAgg[0];
-
-//         // 5. Merge results & fallback to a BROADER search if any product gets less than 3
-//         const productsWithCompetitors = await Promise.all(latestUnique.map(async (product, idx) => {
-//             const facetName = `p${idx}`;
-//             let competitorsList = (competitors[facetName] || []).filter(r => String(r._id) !== String(product._id));
-//             if (competitorsList.length < 3) {
-//                 // Broader fallback: ignore speedIndex/lastIndex/height for extra competitors
-//                 const broadMatch = {
-//                     merchant_product_third_category: product.merchant_product_third_category,
-//                     product_category: product.product_category,
-//                     width: product.width,
-//                     diameter: product.diameter,
-//                     _id: { $ne: product._id }
-//                 };
-//                 Object.keys(broadMatch).forEach(k => (broadMatch[k] == null || broadMatch[k] === "") && delete broadMatch[k]);
-//                 const broadCompetitors = await Product.find(broadMatch)
-//                     .sort({ search_price: 1 })
-//                     .select("_id brand_name product_name product_url search_price")
-//                     .lean();
-//                 for (const c of broadCompetitors) {
-//                     if (
-//                         competitorsList.length < 3 &&
-//                         !competitorsList.some(r => String(r._id) === String(c._id))
-//                     ) {
-//                         competitorsList.push(c);
-//                     }
-//                 }
-//             }
-//             return {
-//                 ...product,
-//                 related_cheaper: (competitorsList || []).slice(0, 3).map(r => ({
-//                     _id: r._id,
-//                     brand_name: r.brand_name,
-//                     product_name: r.product_name,
-//                     url: r.product_url,
-//                     price: typeof r.search_price === "number"
-//                         ? r.search_price.toFixed(2).replace(".", ",")
-//                         : "0,00",
-//                 }))
-//             };
-//         }));
-
-//         return res.status(200).json({
-//             message: "Latest 10 products (one per brand, with up to 3 competitors)",
-//             products: productsWithCompetitors,
-//         });
-
-//     } catch (error) {
-//         console.error("Error fetching latest products:", error);
-//         return res.status(500).json({
-//             message: "Server error",
-//             error: error.message || String(error),
-//         });
-//     }
-// };
-
-// Save/update settings
-// src/controllers/productController.js
 export const getLatestProducts = async (req, res) => {
     try {
         const result = await Product.aggregate([
@@ -719,136 +595,6 @@ export const updateFeaturedSettings = async (req, res) => {
         res.status(500).json({ message: 'Failed to update settings', error: err.message });
     }
 };
-
-// Get latest products based on saved category
-// export const getFeaturedProducts = async (req, res) => {
-//     try {
-//         const settings = await FeaturedSettings.findOne();
-//         const category = settings?.category || 'Winterreifen';
-//         const maxBrands = settings?.max_brands || 10;
-//         const competitorsPerProduct = settings?.competitors_per_product || 3;
-
-//         // 1. Fetch up to 1000 from category, sorted by popularity (average_rating DESC), then newest
-//         // Use an index on: {merchant_product_third_category:1, average_rating:-1, createdAt:-1, brand_name:1}
-//         const allProducts = await Product.find({
-//             merchant_product_third_category: {
-//                 $regex: new RegExp(`^${category}$`, 'i')
-//             }
-//         })
-//             .sort({ average_rating: -1, createdAt: -1 }) // most popular, newest first
-//             .limit(1000)
-//             .select('brand_logo fuel_class product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price merchant_product_category_path merchant_product_second_category average_rating review_count cheapest_offer expensive_offer savings_percent total_offers offers in_stock width height diameter speedIndex lastIndex product_category')
-//             .lean();
-
-//         // 2. Pick the most popular product per brand (first in sorted list)
-//         const uniqueBrandMap = new Map();
-//         for (const product of allProducts) {
-//             if (!uniqueBrandMap.has(product.brand_name)) {
-//                 uniqueBrandMap.set(product.brand_name, product);
-//             }
-//         }
-//         const featuredProducts = Array.from(uniqueBrandMap.values()).slice(0, maxBrands);
-
-//         // 3. Build competitor facets for all featured products (as before)
-//         const competitorFacets = {};
-//         featuredProducts.forEach((product, idx) => {
-//             const facetName = `p${idx}`;
-//             const match = {
-//                 merchant_product_third_category: product.merchant_product_third_category,
-//                 product_category: product.product_category,
-//                 width: product.width,
-//                 height: product.height,
-//                 diameter: product.diameter,
-//                 speedIndex: product.speedIndex,
-//                 lastIndex: product.lastIndex,
-//                 _id: { $ne: product._id }
-//             };
-//             Object.keys(match).forEach(k => (match[k] == null || match[k] === "") && delete match[k]);
-//             competitorFacets[facetName] = [
-//                 { $match: match },
-//                 { $sort: { search_price: 1 } },
-//                 {
-//                     $group: {
-//                         _id: "$brand_name",
-//                         doc: { $first: "$$ROOT" }
-//                     }
-//                 },
-//                 { $replaceRoot: { newRoot: "$doc" } },
-//                 { $sort: { search_price: 1 } },
-//                 { $limit: competitorsPerProduct },
-//                 {
-//                     $project: {
-//                         _id: 1,
-//                         brand_name: 1,
-//                         product_name: 1,
-//                         product_url: 1,
-//                         search_price: 1,
-//                         average_rating: 1
-//                     }
-//                 }
-//             ];
-//         });
-
-//         // 4. Facet aggregation for competitors
-//         const competitorAgg = await Product.aggregate([{ $facet: competitorFacets }]);
-//         const competitors = competitorAgg[0];
-
-//         // 5. Merge results with competitor fallback if less than N competitors
-//         const featuredWithCompetitors = await Promise.all(featuredProducts.map(async (product, idx) => {
-//             const facetName = `p${idx}`;
-//             let competitorsList = (competitors[facetName] || []).filter(r => String(r._id) !== String(product._id));
-//             if (competitorsList.length < competitorsPerProduct) {
-//                 // Fallback: Broader match, ignore some fields
-//                 const broadMatch = {
-//                     merchant_product_third_category: product.merchant_product_third_category,
-//                     product_category: product.product_category,
-//                     width: product.width,
-//                     diameter: product.diameter,
-//                     _id: { $ne: product._id }
-//                 };
-//                 Object.keys(broadMatch).forEach(k => (broadMatch[k] == null || broadMatch[k] === "") && delete broadMatch[k]);
-//                 const broadCompetitors = await Product.find(broadMatch)
-//                     .sort({ search_price: 1 })
-//                     .select("_id brand_name product_name product_url search_price average_rating")
-//                     .lean();
-//                 for (const c of broadCompetitors) {
-//                     if (
-//                         competitorsList.length < competitorsPerProduct &&
-//                         !competitorsList.some(r => String(r._id) === String(c._id))
-//                     ) {
-//                         competitorsList.push(c);
-//                     }
-//                 }
-//             }
-//             return {
-//                 ...product,
-//                 related_cheaper: (competitorsList || []).slice(0, competitorsPerProduct).map(r => ({
-//                     _id: r._id,
-//                     brand_name: r.brand_name,
-//                     product_name: r.product_name,
-//                     url: r.product_url,
-//                     price: typeof r.search_price === "number"
-//                         ? r.search_price.toFixed(2).replace(".", ",")
-//                         : "0,00",
-//                     average_rating: r.average_rating
-//                 }))
-//             };
-//         }));
-
-//         res.status(200).json({
-//             title: settings?.section_title || 'Our recommendation',
-//             category,
-//             products: featuredWithCompetitors
-//         });
-
-//     } catch (err) {
-//         console.error("⚠️ Featured product fetch error:", err);
-//         res.status(500).json({
-//             message: 'Error loading featured products',
-//             error: err.message
-//         });
-//     }
-// };
 
 export const getFeaturedProducts = async (req, res) => {
     try {
@@ -956,95 +702,79 @@ export const getFeaturedProducts = async (req, res) => {
 };
 
 
-export const GetFilterTyres = async (req, res) => {
-    try {
-        const {
-            category,
-            width,
-            height,
-            diameter,
-            brand,
-            wetGrip,
-            fuelClass,
-            noise,
-        } = req.query;
-
-        const baseQuery = {};
-        if (category) baseQuery.merchant_product_third_category = category;
-        if (width) baseQuery.width = width;
-        if (height) baseQuery.height = height;
-        if (diameter) baseQuery.diameter = diameter;
-        if (brand) baseQuery.brand = brand;
-        if (wetGrip) baseQuery.wetGrip = wetGrip;
-        if (fuelClass) baseQuery.fuelClass = fuelClass;
-        if (noise) baseQuery.noise = noise;
-
-        const buildFacetPipeline = (fieldToGroup, removeFieldFromQuery) => {
-            const matchStage = { ...baseQuery };
-            delete matchStage[removeFieldFromQuery];
-
-            return [
-                { $match: matchStage },
-                {
-                    $group: {
-                        _id: `$${fieldToGroup}`,
-                        count: { $sum: 1 },
-                    },
-                },
-                {
-                    $project: {
-                        name: '$_id',
-                        count: 1,
-                        _id: 0,
-                    },
-                },
-                {
-                    $sort: { count: -1 },
-                },
-            ];
-        };
-
-        const result = await Product.aggregate([
-            {
-                $facet: {
-                    categories: buildFacetPipeline('merchant_product_third_category', 'merchant_product_third_category'),
-                    widths: buildFacetPipeline('width', 'width'),
-                    heights: buildFacetPipeline('height', 'height'),
-                    diameters: buildFacetPipeline('diameter', 'diameter'),
-                    brands: buildFacetPipeline('brand_name', 'brand_name'),
-                    wetGrips: buildFacetPipeline('wet_grip', 'wet_grip'),
-                    fuelClasses: buildFacetPipeline('fuel_class', 'fuel_class'),
-                    noises: buildFacetPipeline('noise_class', 'noise_class'),
-                },
-            },
-        ]);
-
-        const {
-            categories,
-            widths,
-            heights,
-            diameters,
-            brands,
-            wetGrips,
-            fuelClasses,
-            noises,
-        } = result[0];
-
-        return res.status(200).json({
-            categories,
-            widths,
-            heights,
-            diameters,
-            brands,
-            wetGrips,
-            fuelClasses,
-            noises,
-        });
-    } catch (err) {
-        console.error('Error in GetFilterTyres:', err);
-        return res.status(500).json({ message: 'Server error', error: err.message });
-    }
+const fieldMap = {
+  category: 'merchant_product_third_category',
+  width: 'width',
+  height: 'height',
+  diameter: 'diameter',
+  brand: 'brand_name',
+  wetGrip: 'wet_grip',
+  fuelClass: 'fuel_class',
+  noise: 'noise_class',
 };
+
+export const GetFilterTyres = async (req, res) => {
+  try {
+    const baseQuery = {};
+
+    for (const [key, value] of Object.entries(req.query)) {
+      if (value && fieldMap[key]) {
+        baseQuery[fieldMap[key]] = value;
+      }
+    }
+
+    const buildFieldData = async (key) => {
+      const field = fieldMap[key];
+      const query = { ...baseQuery };
+      delete query[field]; // Remove current field for faceting
+
+      const values = await Product.distinct(field, query);
+      const counts = await Promise.all(
+        values.map(async (val) => {
+          const count = await Product.countDocuments({ ...query, [field]: val });
+          return { name: val, count };
+        })
+      );
+
+      return counts.sort((a, b) => b.count - a.count);
+    };
+
+    const [
+      categories,
+      widths,
+      heights,
+      diameters,
+      brands,
+      wetGrips,
+      fuelClasses,
+      noises,
+    ] = await Promise.all([
+      buildFieldData('category'),
+      buildFieldData('width'),
+      buildFieldData('height'),
+      buildFieldData('diameter'),
+      buildFieldData('brand'),
+      buildFieldData('wetGrip'),
+      buildFieldData('fuelClass'),
+      buildFieldData('noise'),
+    ]);
+
+    return res.status(200).json({
+      categories,
+      widths,
+      heights,
+      diameters,
+      brands,
+      wetGrips,
+      fuelClasses,
+      noises,
+    });
+  } catch (err) {
+    console.error('Error in GetFilterTyres:', err);
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 
 export const getSearchSuggestions = async (req, res) => {
     const { query } = req.query;

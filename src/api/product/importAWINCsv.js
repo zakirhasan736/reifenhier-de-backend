@@ -423,10 +423,10 @@ export async function importAWINCsv(filePath) {
                     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
                 }
                
-                // ✅ Trigger competitor updater
-                spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
+                // // ✅ Trigger competitor updater
+                // spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
               
-                spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
+                // spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
 
                 resolve();
             })
