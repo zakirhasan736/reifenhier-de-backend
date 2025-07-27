@@ -419,14 +419,14 @@ export async function importAWINCsv(filePath) {
                 console.log(`✅ Import Summary: New: ${importStatus.imported}, Updated: ${importStatus.updated}, Skipped: ${importStatus.skipped}, Deleted: ${importStatus.deleted}`);
 
                 // only trigger Cloudinary upload if there are new reifen.com images
-                // if (cloudinaryUploadQueue.size > 0) {
-                //     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
-                // }
+                if (cloudinaryUploadQueue.size > 0) {
+                    spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
+                }
                
                 // // ✅ Trigger competitor updater
-                // spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
+                spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
               
-                // spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
+                spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
 
                 resolve();
             })

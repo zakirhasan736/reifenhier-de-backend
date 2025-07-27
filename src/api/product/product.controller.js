@@ -702,77 +702,166 @@ export const getFeaturedProducts = async (req, res) => {
 };
 
 
-const fieldMap = {
-  category: 'merchant_product_third_category',
-  width: 'width',
-  height: 'height',
-  diameter: 'diameter',
-  brand: 'brand_name',
-  wetGrip: 'wet_grip',
-  fuelClass: 'fuel_class',
-  noise: 'noise_class',
-};
+// const fieldMap = {
+//   category: 'merchant_product_third_category',
+//   width: 'width',
+//   height: 'height',
+//   diameter: 'diameter',
+//   brand: 'brand_name',
+//   wetGrip: 'wet_grip',
+//   fuelClass: 'fuel_class',
+//   noise: 'noise_class',
+// };
 
+// export const GetFilterTyres = async (req, res) => {
+//   try {
+//     const baseQuery = {};
+
+//     for (const [key, value] of Object.entries(req.query)) {
+//       if (value && fieldMap[key]) {
+//         baseQuery[fieldMap[key]] = value;
+//       }
+//     }
+
+//     const buildFieldData = async (key) => {
+//       const field = fieldMap[key];
+//       const query = { ...baseQuery };
+//       delete query[field]; // Remove current field for faceting
+
+//       const values = await Product.distinct(field, query);
+//       const counts = await Promise.all(
+//         values.map(async (val) => {
+//           const count = await Product.countDocuments({ ...query, [field]: val });
+//           return { name: val, count };
+//         })
+//       );
+
+//       return counts.sort((a, b) => b.count - a.count);
+//     };
+
+//     const [
+//       categories,
+//       widths,
+//       heights,
+//       diameters,
+//       brands,
+//       wetGrips,
+//       fuelClasses,
+//       noises,
+//     ] = await Promise.all([
+//       buildFieldData('category'),
+//       buildFieldData('width'),
+//       buildFieldData('height'),
+//       buildFieldData('diameter'),
+//       buildFieldData('brand'),
+//       buildFieldData('wetGrip'),
+//       buildFieldData('fuelClass'),
+//       buildFieldData('noise'),
+//     ]);
+
+//     return res.status(200).json({
+//       categories,
+//       widths,
+//       heights,
+//       diameters,
+//       brands,
+//       wetGrips,
+//       fuelClasses,
+//       noises,
+//     });
+//   } catch (err) {
+//     console.error('Error in GetFilterTyres:', err);
+//     return res.status(500).json({ message: 'Server error', error: err.message });
+//   }
+// };
 export const GetFilterTyres = async (req, res) => {
-  try {
-    const baseQuery = {};
+    try {
+        const {
+            category,
+            width,
+            height,
+            diameter,
+            brand,
+            wetGrip,
+            fuelClass,
+            noise,
+        } = req.query;
 
-    for (const [key, value] of Object.entries(req.query)) {
-      if (value && fieldMap[key]) {
-        baseQuery[fieldMap[key]] = value;
-      }
+        const baseQuery = {};
+        if (category) baseQuery.merchant_product_third_category = category;
+        if (width) baseQuery.width = width;
+        if (height) baseQuery.height = height;
+        if (diameter) baseQuery.diameter = diameter;
+        if (brand) baseQuery.brand = brand;
+        if (wetGrip) baseQuery.wetGrip = wetGrip;
+        if (fuelClass) baseQuery.fuelClass = fuelClass;
+        if (noise) baseQuery.noise = noise;
+
+        const buildFacetPipeline = (fieldToGroup, removeFieldFromQuery) => {
+            const matchStage = { ...baseQuery };
+            delete matchStage[removeFieldFromQuery];
+
+            return [
+                { $match: matchStage },
+                {
+                    $group: {
+                        _id: `$${fieldToGroup}`,
+                        count: { $sum: 1 },
+                    },
+                },
+                {
+                    $project: {
+                        name: '$_id',
+                        count: 1,
+                        _id: 0,
+                    },
+                },
+                {
+                    $sort: { count: -1 },
+                },
+            ];
+        };
+
+        const result = await Product.aggregate([
+            {
+                $facet: {
+                    categories: buildFacetPipeline('merchant_product_third_category', 'merchant_product_third_category'),
+                    widths: buildFacetPipeline('width', 'width'),
+                    heights: buildFacetPipeline('height', 'height'),
+                    diameters: buildFacetPipeline('diameter', 'diameter'),
+                    brands: buildFacetPipeline('brand_name', 'brand_name'),
+                    wetGrips: buildFacetPipeline('wet_grip', 'wet_grip'),
+                    fuelClasses: buildFacetPipeline('fuel_class', 'fuel_class'),
+                    noises: buildFacetPipeline('noise_class', 'noise_class'),
+                },
+            },
+        ]);
+
+        const {
+            categories,
+            widths,
+            heights,
+            diameters,
+            brands,
+            wetGrips,
+            fuelClasses,
+            noises,
+        } = result[0];
+
+        return res.status(200).json({
+            categories,
+            widths,
+            heights,
+            diameters,
+            brands,
+            wetGrips,
+            fuelClasses,
+            noises,
+        });
+    } catch (err) {
+        console.error('Error in GetFilterTyres:', err);
+        return res.status(500).json({ message: 'Server error', error: err.message });
     }
-
-    const buildFieldData = async (key) => {
-      const field = fieldMap[key];
-      const query = { ...baseQuery };
-      delete query[field]; // Remove current field for faceting
-
-      const values = await Product.distinct(field, query);
-      const counts = await Promise.all(
-        values.map(async (val) => {
-          const count = await Product.countDocuments({ ...query, [field]: val });
-          return { name: val, count };
-        })
-      );
-
-      return counts.sort((a, b) => b.count - a.count);
-    };
-
-    const [
-      categories,
-      widths,
-      heights,
-      diameters,
-      brands,
-      wetGrips,
-      fuelClasses,
-      noises,
-    ] = await Promise.all([
-      buildFieldData('category'),
-      buildFieldData('width'),
-      buildFieldData('height'),
-      buildFieldData('diameter'),
-      buildFieldData('brand'),
-      buildFieldData('wetGrip'),
-      buildFieldData('fuelClass'),
-      buildFieldData('noise'),
-    ]);
-
-    return res.status(200).json({
-      categories,
-      widths,
-      heights,
-      diameters,
-      brands,
-      wetGrips,
-      fuelClasses,
-      noises,
-    });
-  } catch (err) {
-    console.error('Error in GetFilterTyres:', err);
-    return res.status(500).json({ message: 'Server error', error: err.message });
-  }
 };
 
 
