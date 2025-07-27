@@ -7,7 +7,7 @@ import Product from "../../models/product.js";
 import { findLogo } from "../utils/logoFinder.js";
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
-import { spawn } from "child_process";
+// import { spawn } from "child_process";
 import {
     isCarTyreGroup,
     isValidVendor
@@ -419,9 +419,9 @@ export async function importAWINCsv(filePath) {
                 console.log(`✅ Import Summary: New: ${importStatus.imported}, Updated: ${importStatus.updated}, Skipped: ${importStatus.skipped}, Deleted: ${importStatus.deleted}`);
 
                 // only trigger Cloudinary upload if there are new reifen.com images
-                if (cloudinaryUploadQueue.size > 0) {
-                    spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
-                }
+                // if (cloudinaryUploadQueue.size > 0) {
+                //     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
+                // }
                
                 // // ✅ Trigger competitor updater
                 // spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
