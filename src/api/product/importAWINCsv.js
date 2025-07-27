@@ -161,7 +161,7 @@ export function startCsvImportAsync(filePath) {
 
 
 
-const BATCH_SIZE = 1000;
+const BATCH_SIZE = 50;
 
 
 
