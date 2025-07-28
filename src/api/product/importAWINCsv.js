@@ -288,7 +288,7 @@ export async function importAWINCsv(filePath) {
                             product_image: masterRow["merchant_image_url"] || masterRow["aw_image_url"] || masterRow["aw_thumb_url"] || masterRow["large_image"] || masterRow["alternate_image"] || masterRow["alternate_image_two"] || masterRow["alternate_image_three"] || masterRow["alternate_image_four"],
                             description: masterRow["description"],
                             product_affiliate_url: masterRow["aw_deep_link"],
-                            product_url: cheapestVendorOffer ? cheapestVendorOffer.original_affiliate_url : masterRow["aw_deep_link"],
+                            product_url: cheapestVendorOffer ? cheapestVendorOffer.aw_deep_link : `/go/${masterRow["aw_product_id"]}?from=reifendb`,
                             currency: masterRow["currency"],
                             vendor: masterRow["merchant_name"],
                             merchant_deep_link: masterRow["merchant_deep_link"],
@@ -309,7 +309,7 @@ export async function importAWINCsv(filePath) {
                                 vendor: cheapestVendorOffer.vendor,
                                 vendor_id: cheapestVendorOffer.vendor_id,
                                 vendor_logo: cheapestVendorOffer.vendor_logo,
-                                aw_deep_link: cheapestVendorOffer.original_affiliate_url,
+                                aw_deep_link: cheapestVendorOffer.aw_deep_link,
                                 payment_icons: cheapestVendorOffer.payment_icons,
                                 delivery_cost: cheapestVendorOffer.delivery_cost
                             } : null,
