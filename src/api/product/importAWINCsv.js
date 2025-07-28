@@ -4,6 +4,7 @@ import csv from "csv-parser";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import Product from "../../models/product.js";
+import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
@@ -165,12 +166,41 @@ const BATCH_SIZE = 50;
 
 
 
-export function getImportProgress(req, res) {
-    res.json({
-        ...importStatus,
-        batchSize: BATCH_SIZE
-    });
+export async function getImportProgress(req, res) {
+    try {
+        const meta = await ImportMeta.findOne({ source: "AWIN" });
+
+        if (!meta) {
+            return res.json({
+                running: false,
+                done: false,
+                progress: 0,
+                imported: 0,
+                updated: 0,
+                lastStarted: null,
+                lastSuccess: null,
+            });
+        }
+
+        const progress =
+            meta.total > 0
+                ? Math.round(((meta.imported || 0) + (meta.updated || 0)) / meta.total * 100)
+                : 0;
+
+        res.json({
+            running: meta.isRunning,
+            done: meta.done,
+            progress,
+            imported: meta.imported || 0,
+            updated: meta.updated || 0,
+            lastStarted: meta.lastStarted,
+            lastSuccess: meta.lastSuccess,
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch import status" });
+    }
 }
+
 const cloudinaryUploadQueue = new Set();
 export async function importAWINCsv(filePath) {
     return new Promise((resolve, reject) => {
@@ -184,7 +214,22 @@ export async function importAWINCsv(filePath) {
             totalLines = 0;
         }
         importStatus.total = totalLines;
-
+        // ✅ STEP 1: Initialize DB status
+        ImportMeta.findOneAndUpdate(
+            { source: "AWIN" },
+            {
+                $set: {
+                    isRunning: true,
+                    done: false,
+                    imported: 0,
+                    updated: 0,
+                    total: totalLines,
+                    lastStarted: new Date(),
+                    progress: 0
+                },
+            },
+            { upsert: true }
+        ).catch(console.error);
         fs.createReadStream(filePath)
             .pipe(csv({ separator: ";" }))
             .on("data", (row) => {
@@ -374,6 +419,13 @@ export async function importAWINCsv(filePath) {
                         if (!existing) {
                             const newProd = products[ean];
                             importStatus.imported++;
+                            await ImportMeta.updateOne(
+                                { source: "AWIN" },
+                                {
+                                    $inc: { imported: 1 }
+                                }
+                            );
+
                             bulkOps.push({ insertOne: { document: newProd } });
                             importStatus.debugLog.push(`[INSERT] ${ean}`);
                             if (newProd.product_image.includes("reifen.com")) {
@@ -391,6 +443,13 @@ export async function importAWINCsv(filePath) {
                                 const reasons = findChangedFields(existing, newProd);
                                 if (hasNewVendorId(existing.offers || [], newProd.offers)) reasons.push("new_vendor_id");
                                 importStatus.updated++;
+                                await ImportMeta.updateOne(
+                                    { source: "AWIN" },
+                                    {
+                                        $inc: { updated: 1 }
+                                    }
+                                );
+
                                 bulkOps.push({ updateOne: { filter: { _id: existing._id }, update: { $set: newProd } } });
                                 importStatus.debugLog.push(`[UPDATE] ${ean} - Reasons: ${reasons.join(", ")}`);
                             } else {
@@ -427,6 +486,18 @@ export async function importAWINCsv(filePath) {
                 spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
               
                 spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
+                // ✅ STEP 2: Final status
+                await ImportMeta.findOneAndUpdate(
+                    { source: "AWIN" },
+                    {
+                        $set: {
+                            isRunning: false,
+                            done: true,
+                            lastSuccess: new Date(),
+                            progress: 100
+                        },
+                    }
+                );
 
                 resolve();
             })
