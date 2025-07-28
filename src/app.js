@@ -18,7 +18,7 @@ import faqRoutes from './api/faq/faq.routes.js';
 import favoriteRoutes from './api/favorite/favorite.routes.js';
 import wishlistRoutes from './api/wishlist/wishlist.route.js';
 import blogRoutes from './api/blogs/blog.routes.js';
-import outRoutes from "./api/utils/visit.js";
+import visitRoutes from './api/utils/visit.js'; 
 
 dotenv.config();
 connectDB();
@@ -54,7 +54,7 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // Routes
-app.use('/visit', outRoutes);
+app.use('/visit', visitRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
