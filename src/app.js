@@ -18,7 +18,7 @@ import faqRoutes from './api/faq/faq.routes.js';
 import favoriteRoutes from './api/favorite/favorite.routes.js';
 import wishlistRoutes from './api/wishlist/wishlist.route.js';
 import blogRoutes from './api/blogs/blog.routes.js';
-import outRoutes from "./api/utils/out.js";
+import outRoutes from "./api/utils/visit.js";
 
 dotenv.config();
 connectDB();
