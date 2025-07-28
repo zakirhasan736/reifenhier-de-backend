@@ -291,6 +291,7 @@ export async function importAWINCsv(filePath) {
                                 : "0%";
 
                             return {
+                                aw_product_id: row["aw_product_id"],
                                 vendor: row["merchant_name"],
                                 vendor_id: row["merchant_id"],
                                 brand_name: row["brand_name"],
@@ -351,12 +352,15 @@ export async function importAWINCsv(filePath) {
                             expensive_offer: mostExpensive,
                             payment_methods: cheapestVendorOffer ? cheapestVendorOffer.payment_icons : [],
                             cheapest_vendor: cheapestVendorOffer ? {
+                                aw_product_id: cheapestVendorOffer.aw_product_id,
+                                vendor_id: cheapestVendorOffer.vendor_id,
                                 vendor: cheapestVendorOffer.vendor,
                                 vendor_id: cheapestVendorOffer.vendor_id,
                                 vendor_logo: cheapestVendorOffer.vendor_logo,
                                 aw_deep_link: cheapestVendorOffer.aw_deep_link,
                                 payment_icons: cheapestVendorOffer.payment_icons,
-                                delivery_cost: cheapestVendorOffer.delivery_cost
+                                delivery_cost: cheapestVendorOffer.delivery_cost,
+                                original_affiliate_url: cheapestVendorOffer.original_affiliate_url,
                             } : null,
                             colour: masterRow["colour"],
                             product_short_description: masterRow["product_short_description"],

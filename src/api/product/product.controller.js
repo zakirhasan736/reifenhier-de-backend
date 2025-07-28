@@ -585,10 +585,11 @@ export const GetFilterTyres = async (req, res) => {
         if (width) baseQuery.width = width;
         if (height) baseQuery.height = height;
         if (diameter) baseQuery.diameter = diameter;
-        if (brand) baseQuery.brand = brand;
-        if (wetGrip) baseQuery.wetGrip = wetGrip;
-        if (fuelClass) baseQuery.fuelClass = fuelClass;
-        if (noise) baseQuery.noise = noise;
+        if (brand) baseQuery.brand_name = brand;
+        if (wetGrip) baseQuery.wet_grip = wetGrip;
+        if (fuelClass) baseQuery.fuel_class = fuelClass;
+        if (noise) baseQuery.noise_class = noise;
+
 
         const buildFacetPipeline = (fieldToGroup, removeFieldFromQuery) => {
             const matchStage = { ...baseQuery };

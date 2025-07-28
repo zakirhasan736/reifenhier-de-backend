@@ -15,7 +15,7 @@ router.get("/:clickId", async (req, res) => {
         const product = await Product.findById(productId).lean();
         if (!product) return res.status(404).send("Product not found");
 
-        const offer = product.offers?.find(o => o.original_affiliate_url.includes(clickId));
+        const offer = product.offers?.find(o => o.aw_deep_link.includes(clickId));
         if (!offer) return res.status(404).send("Offer not found");
 
         await Click.create({
