@@ -8,7 +8,7 @@ import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
-// import { spawn } from "child_process";
+import { spawn } from "child_process";
 import {
     isCarTyreGroup,
     isValidVendor

@@ -50,9 +50,7 @@ router.get('/:encoded', (req, res) => {
               window.location.href = "${originalUrl}";
             });
 
-            setTimeout(() => {
-              document.getElementById("go").click();
-            }, 200);
+          
           </script>
         </body>
       </html>

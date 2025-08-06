@@ -1,52 +1,64 @@
 import Blog from '../../models/Blog.js';
 import slugify from 'slugify';
 import dotenv from 'dotenv';
-dotenv.config()
-import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import fs from 'fs';
+import path from 'path';
 
-// Configure Cloudinary
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+dotenv.config();
 
-// Multer storage for blog images
-const storage = new CloudinaryStorage({
-    cloudinary,
-    params: {
-        folder: 'blogs',
-        allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
-        transformation: [{ quality: 'auto' }, { fetch_format: 'auto' }],
-    },
-});
+// Directory for frontend images
+const FRONTEND_BLOG_IMAGE_DIR = path.resolve(
+    process.env.FRONTEND_BLOG_IMAGE_DIR ||
+    '../../frontend/public/images/blogs'
+);
 
+// Directory for admin images
+const ADMIN_BLOG_IMAGE_DIR = path.resolve(
+    process.env.ADMIN_BLOG_IMAGE_DIR ||
+    '../../admin/public/images/blogs'
+);
+
+// Ensure both folders exist!
+fs.mkdirSync(FRONTEND_BLOG_IMAGE_DIR, { recursive: true });
+fs.mkdirSync(ADMIN_BLOG_IMAGE_DIR, { recursive: true });
+
+// Multer memory storage config
+const storage = multer.memoryStorage();
 export const upload = multer({ storage });
 
-// Create blog
+// --- Helper: save buffer to both locations ---
+function saveToBothBlogDirs(filename, buffer) {
+    fs.writeFileSync(path.join(FRONTEND_BLOG_IMAGE_DIR, filename), buffer);
+    fs.writeFileSync(path.join(ADMIN_BLOG_IMAGE_DIR, filename), buffer);
+}
+
+// --- Create Blog ---
 export const createBlog = async (req, res) => {
     try {
-        console.log('Incoming blog payload:', req.body);
-        console.log('Uploaded file:', req.file);
-
         const { title, contentBlocks, tags, metaDescription } = req.body;
-
-        if (!contentBlocks) {
+        if (!contentBlocks)
             return res.status(400).json({ message: 'Content blocks are required' });
-        }
 
-        const parsedBlocks = typeof contentBlocks === 'string' ? JSON.parse(contentBlocks) : contentBlocks;
-        // Normalize slug (same logic as updateBlog)
+        const parsedBlocks =
+            typeof contentBlocks === 'string'
+                ? JSON.parse(contentBlocks)
+                : contentBlocks;
         const slug = slugify(title, { lower: true, strict: true });
 
-        // Optional: check if slug already exists
+        // Check if blog slug exists
         const existing = await Blog.findOne({ slug });
-        if (existing) {
+        if (existing)
             return res.status(400).json({ message: 'A blog with this title already exists.' });
+
+        let image = null;
+        if (req.file) {
+            const ext = path.extname(req.file.originalname);
+            const unique = Date.now() + '-' + Math.round(Math.random() * 1e6);
+            const filename = `${slug}-${unique}${ext}`;
+            saveToBothBlogDirs(filename, req.file.buffer);
+            image = `/images/blogs/${filename}`;
         }
-        const image = req.file?.path;
 
         const newBlog = new Blog({
             title,
@@ -59,20 +71,20 @@ export const createBlog = async (req, res) => {
 
         await newBlog.save();
         res.status(201).json({ message: 'Blog created successfully', blog: newBlog });
-
     } catch (err) {
         console.error('❌ Error creating blog:', err);
         res.status(500).json({ message: 'Failed to create blog' });
     }
 };
 
-// Update blog
+// --- Update Blog ---
 export const updateBlog = async (req, res) => {
     try {
         const { title, contentBlocks, tags, metaDescription } = req.body;
-        const parsedBlocks = typeof contentBlocks === 'string' ? JSON.parse(contentBlocks) : contentBlocks;
-
-        // Use the same slug logic as createBlog
+        const parsedBlocks =
+            typeof contentBlocks === 'string'
+                ? JSON.parse(contentBlocks)
+                : contentBlocks;
         const slug = slugify(title, { lower: true, strict: true });
 
         const updatedFields = {
@@ -83,8 +95,12 @@ export const updateBlog = async (req, res) => {
             metaDescription,
         };
 
-        if (req.file?.path) {
-            updatedFields.coverImage = req.file.path;
+        if (req.file) {
+            const ext = path.extname(req.file.originalname);
+            const unique = Date.now() + '-' + Math.round(Math.random() * 1e6);
+            const filename = `${slug}-${unique}${ext}`;
+            saveToBothBlogDirs(filename, req.file.buffer);
+            updatedFields.coverImage = `/images/blogs/${filename}`;
         }
 
         const blog = await Blog.findByIdAndUpdate(req.params.id, updatedFields, { new: true });
