@@ -9,6 +9,142 @@ await mongoose.connect(process.env.MONGODB_URI);
 
 const LiveProduct = mongoose.model("Product", Product.schema, "products");
 
+// STEP 1: Helper to find up to 3 alternatives, loosening filter step by step
+async function findCompetitors(prod) {
+    // 1. Most strict
+    let competitors = await LiveProduct.aggregate([
+        {
+            $match: {
+                _id: { $ne: prod._id },
+                merchant_product_third_category: prod.merchant_product_third_category,
+                product_category: prod.product_category,
+                width: prod.width,
+                height: prod.height,
+                diameter: prod.diameter,
+                speedIndex: prod.speedIndex,
+                lastIndex: prod.lastIndex,
+            },
+        },
+        { $sort: { search_price: 1 } },
+        {
+            $group: {
+                _id: "$brand_name",
+                doc: { $first: "$$ROOT" },
+            },
+        },
+        { $replaceRoot: { newRoot: "$doc" } },
+        { $sort: { search_price: 1 } },
+        { $limit: 3 },
+        {
+            $project: {
+                _id: 1,
+                brand_name: 1,
+                product_name: 1,
+                product_url: 1,
+                search_price: 1,
+            },
+        },
+    ]);
+    if (competitors.length >= 3) return competitors;
+
+    // 2. Looser: ignore speedIndex/lastIndex
+    competitors = await LiveProduct.aggregate([
+        {
+            $match: {
+                _id: { $ne: prod._id },
+                merchant_product_third_category: prod.merchant_product_third_category,
+                product_category: prod.product_category,
+                width: prod.width,
+                height: prod.height,
+                diameter: prod.diameter,
+            },
+        },
+        { $sort: { search_price: 1 } },
+        {
+            $group: {
+                _id: "$brand_name",
+                doc: { $first: "$$ROOT" },
+            },
+        },
+        { $replaceRoot: { newRoot: "$doc" } },
+        { $sort: { search_price: 1 } },
+        { $limit: 3 },
+        {
+            $project: {
+                _id: 1,
+                brand_name: 1,
+                product_name: 1,
+                product_url: 1,
+                search_price: 1,
+            },
+        },
+    ]);
+    if (competitors.length >= 3) return competitors;
+
+    // 3. Looser: only category + diameter
+    competitors = await LiveProduct.aggregate([
+        {
+            $match: {
+                _id: { $ne: prod._id },
+                product_category: prod.product_category,
+                diameter: prod.diameter,
+            },
+        },
+        { $sort: { search_price: 1 } },
+        {
+            $group: {
+                _id: "$brand_name",
+                doc: { $first: "$$ROOT" },
+            },
+        },
+        { $replaceRoot: { newRoot: "$doc" } },
+        { $sort: { search_price: 1 } },
+        { $limit: 3 },
+        {
+            $project: {
+                _id: 1,
+                brand_name: 1,
+                product_name: 1,
+                product_url: 1,
+                search_price: 1,
+            },
+        },
+    ]);
+    if (competitors.length >= 3) return competitors;
+
+    // 4. As loose as possible: same main category
+    competitors = await LiveProduct.aggregate([
+        {
+            $match: {
+                _id: { $ne: prod._id },
+                product_category: prod.product_category,
+            },
+        },
+        { $sort: { search_price: 1 } },
+        {
+            $group: {
+                _id: "$brand_name",
+                doc: { $first: "$$ROOT" },
+            },
+        },
+        { $replaceRoot: { newRoot: "$doc" } },
+        { $sort: { search_price: 1 } },
+        { $limit: 3 },
+        {
+            $project: {
+                _id: 1,
+                brand_name: 1,
+                product_name: 1,
+                product_url: 1,
+                search_price: 1,
+            },
+        },
+    ]);
+
+    return competitors.slice(0, 3); // May be less than 3, but always try to fill
+}
+
+// STEP 2: Main batch update logic
 async function updateRelatedCheaperInBatches(batchSize = 500) {
     const totalProductsToUpdate = await LiveProduct.countDocuments({
         $or: [
@@ -65,39 +201,7 @@ async function updateRelatedCheaperInBatches(batchSize = 500) {
             const prod = products[i];
             const counter = `${processed + i + 1}/${totalProductsToUpdate}`;
             try {
-                const competitors = await LiveProduct.aggregate([
-                    {
-                        $match: {
-                            _id: { $ne: prod._id },
-                            merchant_product_third_category: prod.merchant_product_third_category,
-                            product_category: prod.product_category,
-                            width: prod.width,
-                            height: prod.height,
-                            diameter: prod.diameter,
-                            speedIndex: prod.speedIndex,
-                            lastIndex: prod.lastIndex,
-                        },
-                    },
-                    { $sort: { search_price: 1 } },
-                    {
-                        $group: {
-                            _id: "$brand_name",
-                            doc: { $first: "$$ROOT" },
-                        },
-                    },
-                    { $replaceRoot: { newRoot: "$doc" } },
-                    { $sort: { search_price: 1 } },
-                    { $limit: 3 },
-                    {
-                        $project: {
-                            _id: 1,
-                            brand_name: 1,
-                            product_name: 1,
-                            product_url: 1,
-                            search_price: 1,
-                        },
-                    },
-                ]);
+                const competitors = await findCompetitors(prod);
 
                 if (!competitors.length) {
                     console.log(`🔸 (${counter}) Skipped [${prod._id}] - No competitors`);

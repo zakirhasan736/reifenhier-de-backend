@@ -6,6 +6,8 @@ import mongoose from "mongoose";
 import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
+import affiliateCloak from "../utils/affiliateCloak.js";
+
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
 import { spawn } from "child_process";
@@ -290,6 +292,11 @@ export async function importAWINCsv(filePath) {
                                 ? `-${Math.round(((maxPrice - vendorPrice) / maxPrice) * 100)}%`
                                 : "0%";
 
+                            const originalAffiliateUrl = row["aw_deep_link"];
+                            const cloakUrl = originalAffiliateUrl
+                                ? affiliateCloak.encodeAffiliateUrl(originalAffiliateUrl)
+                                : null;
+
                             return {
                                 aw_product_id: row["aw_product_id"],
                                 vendor: row["merchant_name"],
@@ -303,7 +310,8 @@ export async function importAWINCsv(filePath) {
                                 currency: row["currency"],
                                 payment_icons: VENDOR_PAYMENT_ICONS[row["merchant_name"]] || [],
                                 aw_deep_link: `/go/${row["aw_product_id"]}?from=reifendb`,
-                                original_affiliate_url: row["aw_deep_link"],
+                                original_affiliate_url: originalAffiliateUrl,
+                                affiliate_product_cloak_url: cloakUrl, // NEW FIELD
                                 delivery_cost: row["delivery_cost"],
                                 delivery_time: row["delivery_time"],
                                 product_category: row["merchant_product_third_category"],
@@ -361,6 +369,9 @@ export async function importAWINCsv(filePath) {
                                 payment_icons: cheapestVendorOffer.payment_icons,
                                 delivery_cost: cheapestVendorOffer.delivery_cost,
                                 original_affiliate_url: cheapestVendorOffer.original_affiliate_url,
+                                affiliate_product_cloak_url: cheapestVendorOffer.original_affiliate_url
+                                    ? affiliateCloak.encodeAffiliateUrl(cheapestVendorOffer.original_affiliate_url)
+                                    : null, // NEW FIELD
                             } : null,
                             colour: masterRow["colour"],
                             product_short_description: masterRow["product_short_description"],

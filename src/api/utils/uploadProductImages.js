@@ -177,7 +177,7 @@ async function main() {
             product_image: {
                 $exists: true,
                 $ne: null,
-                $not: /^\/images\/product-images\//,
+                $not: /^\/images\/product-image\//,
                 $regex: /^https?:\/\/.*reifen\.com\//
             }
         }, { product_image: 1, _id: 1, ean: 1, name: 1 }).lean();
@@ -204,7 +204,7 @@ async function main() {
             const outPath = await downloadImage(prod.product_image, filename);
 
             if (outPath) {
-                const relativePath = `/images/product-images/${SUB_DIR}/${filename}`;
+                const relativePath = `/images/product-image/${SUB_DIR}/${filename}`;
                 await LiveProduct.updateOne(
                     { _id: prod._id },
                     { $set: { product_image: relativePath } }
