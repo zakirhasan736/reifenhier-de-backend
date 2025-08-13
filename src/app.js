@@ -44,9 +44,26 @@ app.use(cors({
             );
         }
     },
+    origin: function (origin, callback) {
+        console.log('🌐 Incoming Origin:', origin); // <-- Add this line
+
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        } else {
+            return callback(
+                new Error(
+                    `CORS: Origin ${origin} not allowed. Allowed origins: ${allowedOrigins.join(", ")}`
+                )
+            );
+        }
+    },
+
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
 }));
+console.log('✅ Allowed CORS Origins:', allowedOrigins);
+
 // --- CORS CONFIG END --- //
 app.use(cookieParser());
 app.use(express.json());
