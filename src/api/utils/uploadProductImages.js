@@ -135,7 +135,7 @@
 // // version script 2.0.0  uploadProductImages.js
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import Product from "../../models/product.js";
+import Product from "../../models/product.js"; 
 import axios from "axios";
 import pLimit from "p-limit";
 import fs from "fs";

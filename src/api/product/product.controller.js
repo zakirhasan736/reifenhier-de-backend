@@ -124,6 +124,14 @@ export const productLists = async (req, res) => {
             main_price: typeof product.main_price === "number"
                 ? `${product.main_price.toFixed(2).replace(".", ",")}`
                 : product.main_price || "0,00",
+            offers: Array.isArray(product.offers)
+                ? product.offers.map(o => ({
+                    ...o,
+                    price: typeof o.price === "number"
+                        ? o.price.toFixed(2).replace(".", ",")
+                        : "0,00",
+                }))
+                : [],
             savings_percent: product.savings_percent || "0%",
             total_offers: product.total_offers || (product.offers?.length || 1),
             zum_angebot_url: product.offers?.[0]?.aw_deep_link || "",
@@ -428,10 +436,31 @@ export const getLatestProducts = async (req, res) => {
         if (!result.length) {
             return res.status(404).json({ message: "No products found." });
         }
+        // Format prices for frontend
+        const formatted = result.map((p) => ({
+            ...p,
+            cheapest_offer: typeof p.cheapest_offer === "number"
+                ? p.cheapest_offer.toFixed(2).replace(".", ",")
+                : "0,00",
+            expensive_offer: typeof p.expensive_offer === "number"
+                ? p.expensive_offer.toFixed(2).replace(".", ",")
+                : "0,00",
+            search_price: typeof p.search_price === "number"
+                ? p.search_price.toFixed(2).replace(".", ",")
+                : "0,00",
+            offers: Array.isArray(p.offers)
+                ? p.offers.map(o => ({
+                    ...o,
+                    price: typeof o.price === "number"
+                        ? o.price.toFixed(2).replace(".", ",")
+                        : "0,00",
+                }))
+                : []
+        }));
 
         return res.status(200).json({
             message: "Latest 10 products (fast with facet & related_cheaper)",
-            products: result
+            products: formatted
         });
     } catch (error) {
         console.error("Error fetching latest products:", error);
@@ -550,6 +579,14 @@ export const getFeaturedProducts = async (req, res) => {
             search_price: typeof p.search_price === "number"
                 ? p.search_price.toFixed(2).replace(".", ",")
                 : "0,00",
+            offers: Array.isArray(p.offers)
+                ? p.offers.map(o => ({
+                    ...o,
+                    price: typeof o.price === "number"
+                        ? o.price.toFixed(2).replace(".", ",")
+                        : "0,00",
+                }))
+                : []
         }));
 
         return res.status(200).json({
@@ -574,7 +611,7 @@ export const GetFilterTyres = async (req, res) => {
             width,
             height,
             diameter,
-            brand,
+            lastIndex,
             wetGrip,
             fuelClass,
             noise,
@@ -585,7 +622,7 @@ export const GetFilterTyres = async (req, res) => {
         if (width) baseQuery.width = width;
         if (height) baseQuery.height = height;
         if (diameter) baseQuery.diameter = diameter;
-        if (brand) baseQuery.brand_name = brand;
+        if (lastIndex) baseQuery.lastIndex = lastIndex;
         if (wetGrip) baseQuery.wet_grip = wetGrip;
         if (fuelClass) baseQuery.fuel_class = fuelClass;
         if (noise) baseQuery.noise_class = noise;
@@ -623,7 +660,7 @@ export const GetFilterTyres = async (req, res) => {
                     widths: buildFacetPipeline('width', 'width'),
                     heights: buildFacetPipeline('height', 'height'),
                     diameters: buildFacetPipeline('diameter', 'diameter'),
-                    brands: buildFacetPipeline('brand_name', 'brand_name'),
+                    lastIndexes: buildFacetPipeline('lastIndex', 'lastIndex'),
                     wetGrips: buildFacetPipeline('wet_grip', 'wet_grip'),
                     fuelClasses: buildFacetPipeline('fuel_class', 'fuel_class'),
                     noises: buildFacetPipeline('noise_class', 'noise_class'),
@@ -636,7 +673,7 @@ export const GetFilterTyres = async (req, res) => {
             widths,
             heights,
             diameters,
-            brands,
+            lastIndexes,
             wetGrips,
             fuelClasses,
             noises,
@@ -647,7 +684,7 @@ export const GetFilterTyres = async (req, res) => {
             widths,
             heights,
             diameters,
-            brands,
+            lastIndexes,
             wetGrips,
             fuelClasses,
             noises,
