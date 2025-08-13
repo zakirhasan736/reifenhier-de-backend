@@ -2,7 +2,7 @@ import express from "express";
 import affiliateCloak from "./affiliateCloak.js";
 import fetch from "node-fetch";
 import Product from "../../models/product.js";
-import Click from "../../models/Click.js";
+import Click from "../../models/click.js";
 
 const router = express.Router();
 
