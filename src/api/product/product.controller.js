@@ -102,7 +102,7 @@ export const productLists = async (req, res) => {
                 .skip(skip)
                 .limit(+limit)
                 .select(
-                    "brand_logo fuel_class related_cheaper in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
+                    "brand_logo fuel_class related_cheaper slug in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
                 )
                 .lean(),
             Product.countDocuments(filters),
@@ -196,7 +196,7 @@ function formatPrice(value) {
 }  
   
 export const getProductDetails = async (req, res) => {
-    const { productId } = req.params;
+    const { slug } = req.params;
 
     // Helpers
     const parseTyreDimensions = (dim) => {
@@ -233,14 +233,14 @@ export const getProductDetails = async (req, res) => {
     };
 
     try {
-        const product = await Product.findOne({
-            $or: [
-                { _id: productId },
-                { ean: productId },
-                { aw_product_id: productId }
-            ]
-        }).lean();
-
+        // const product = await Product.findOne({
+        //     $or: [
+        //         { _id: productId },
+        //         { ean: productId },
+        //         { aw_product_id: productId }
+        //     ]
+        // }).lean();
+        const product = await Product.findOne({ slug }).lean();
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
@@ -404,6 +404,7 @@ export const getLatestProducts = async (req, res) => {
             {
                 $project: {
                     brand_name: 1,
+                    slug: 1,
                     brand_logo: 1,
                     product_image: 1,
                     product_name: 1,
@@ -532,6 +533,7 @@ export const getFeaturedProducts = async (req, res) => {
             {
                 $project: {
                     brand_logo: 1,
+                    slug: 1,
                     fuel_class: 1,
                     product_image: 1,
                     wet_grip: 1,

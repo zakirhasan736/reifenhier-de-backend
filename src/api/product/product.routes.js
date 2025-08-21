@@ -17,7 +17,8 @@ router.post("/upload-csv", upload.single("file"), uploadCsv);
 router.get("/upload-csv-progress", getImportProgress);
 router.get("/import/status", getImportProgress);
 // New: Products details data
-router.get("/product-details/:productId", getProductDetails);
+// router.get("/product-details/:productId", getProductDetails);
+router.get("/product-details/:slug", getProductDetails);
 
 // New: Brand summary
 router.get("/brand-summary", getBrandSummary);

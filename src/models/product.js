@@ -1,5 +1,8 @@
 
 import mongoose from "mongoose";
+import slugify from 'slugify';
+
+
 
 // Embedded Offer schema
 const OfferSchema = new mongoose.Schema({
@@ -155,6 +158,13 @@ const ProductSchema = new mongoose.Schema({
   last_updated: String,
   last_imported_at: Date,
   offers: [OfferSchema],
+  slug: {
+    type: String,
+    unique: true,
+    required: true,
+    lowercase: true,
+    trim: true,
+  },
   related_cheaper: [
     {
       _id: mongoose.Schema.Types.ObjectId,
@@ -165,5 +175,13 @@ const ProductSchema = new mongoose.Schema({
     }
   ],
 }, { timestamps: true });
+
+ProductSchema.pre("save", function (next) {
+  if (!this.slug && this.product_name && this.brand_name) {
+    const nameWithoutDimensions = this.product_name.replace(/\b\d{3}\/\d{2}\s?R\d{2}\b/g, "").trim();
+    this.slug = slugify(`${this.brand_name} ${nameWithoutDimensions}`, { lower: true });
+  }
+  next();
+});
 
 export default mongoose.models.Product || mongoose.model("Product", ProductSchema);
