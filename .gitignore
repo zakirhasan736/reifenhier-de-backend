@@ -19,7 +19,7 @@
 
 # production
 /build
-
+/src/middleware/security.js
 # misc
 .DS_Store
 *.pem

@@ -4,25 +4,202 @@ import { startCsvImportAsync } from "./importAWINCsv.js";
 // import { getCompetitors } from '../utils/competitor.js';
 
 
+// export const productLists = async (req, res) => {
+//     try {
+//         const {
+//             page = 1,
+//             limit = 12,
+//             sort = "createdAt",
+//             order = "desc",
+//         } = req.query;
+
+//         const toArray = (val) =>
+//             Array.isArray(val)
+//                 ? val
+//                 : val
+//                     ? typeof val === "string"
+//                         ? val.split(",").filter(Boolean)
+//                         : [val]
+//                     : [];
+
+//         // Build filters for main product search
+//         const filters = {
+//             ...(req.query.category && {
+//                 merchant_product_third_category: { $in: toArray(req.query.category) },
+//             }),
+//             ...(req.query.brand && {
+//                 brand_name: { $in: toArray(req.query.brand) },
+//             }),
+//             ...(req.query.width && {
+//                 width: { $in: toArray(req.query.width) },
+//             }),
+//             ...(req.query.height && {
+//                 height: { $in: toArray(req.query.height) },
+//             }),
+//             ...(req.query.diameter && {
+//                 diameter: { $in: toArray(req.query.diameter) },
+//             }),
+//             ...(req.query.speedIndex && {
+//                 speedIndex: { $in: toArray(req.query.speedIndex) },
+//             }),
+//             ...(req.query.lastIndex && {
+//                 lastIndex: { $in: toArray(req.query.lastIndex) },
+//             }),
+//             ...(req.query.noise && {
+//                 noise_class: { $in: toArray(req.query.noise) },
+//             }),
+//             ...(req.query.fuelClass && {
+//                 fuel_class: { $in: toArray(req.query.fuelClass) },
+//             }),
+//             ...(req.query.wetGrip && {
+//                 wet_grip: { $in: toArray(req.query.wetGrip) },
+//             }),
+//         };
+
+//         const skip = (parseInt(page) - 1) * parseInt(limit);
+//         const sortOption = { [sort]: order === "asc" ? 1 : -1 };
+
+//         // Faceted search (filters)
+//         const fieldMap = {
+//             categories: "merchant_product_third_category",
+//             brands: "brand_name",
+//             widths: "width",
+//             heights: "height",
+//             diameters: "diameter",
+//             speedIndexes: "speedIndex",
+//             lastIndexes: "lastIndex",
+//             noises: "noise_class",
+//             fuelClasses: "fuel_class",
+//             wetGrips: "wet_grip",
+//         };
+
+//         const facetStage = {};
+//         for (const [facetName, field] of Object.entries(fieldMap)) {
+//             const filterCopy = { ...filters };
+//             delete filterCopy[field];
+//             facetStage[facetName] = [
+//                 { $match: filterCopy },
+//                 { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+//                 { $project: { name: "$_id", count: 1, _id: 0 } },
+//             ];
+//         }
+
+//         facetStage.prices = [
+//             { $match: filters },
+//             {
+//                 $group: {
+//                     _id: null,
+//                     min: { $min: "$search_price" },
+//                     max: { $max: "$search_price" },
+//                 },
+//             },
+//         ];
+
+//         // 1. Fetch main products
+//         const [productsRaw, total, agg] = await Promise.all([
+//             Product.find(filters)
+//                 .sort(sortOption)
+//                 .skip(skip)
+//                 .limit(+limit)
+//                 .select(
+//                     "brand_logo fuel_class related_cheaper slug in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
+//                 )
+//                 .lean(),
+//             Product.countDocuments(filters),
+//             Product.aggregate([{ $facet: facetStage }]),
+//         ]);
+
+//         // Now use the reusable function per product:
+//         const products = await Promise.all(productsRaw.map(async (product) => ({
+//             ...product,
+//             cheapest_offer: typeof product.cheapest_offer === "number"
+//                 ? `${product.cheapest_offer.toFixed(2).replace(".", ",")}`
+//                 : product.cheapest_offer || "0,00",
+//             expensive_offer: typeof product.expensive_offer === "number"
+//                 ? `${product.expensive_offer.toFixed(2).replace(".", ",")}`
+//                 : product.expensive_offer || "0,00",
+//             search_price: typeof product.search_price === "number"
+//                 ? `${product.search_price.toFixed(2).replace(".", ",")}`
+//                 : product.search_price || "0,00",
+//             main_price: typeof product.main_price === "number"
+//                 ? `${product.main_price.toFixed(2).replace(".", ",")}`
+//                 : product.main_price || "0,00",
+//             offers: Array.isArray(product.offers)
+//                 ? product.offers.map(o => ({
+//                     ...o,
+//                     price: typeof o.price === "number"
+//                         ? o.price.toFixed(2).replace(".", ",")
+//                         : "0,00",
+//                 }))
+//                 : [],
+//             savings_percent: product.savings_percent || "0%",
+//             total_offers: product.total_offers || (product.offers?.length || 1),
+//             zum_angebot_url: product.offers?.[0]?.aw_deep_link || "",
+//             vendor_name: product.offers?.[0]?.vendor || "",
+//             vendor_logo: product.offers?.[0]?.vendor_logo || "",
+//             // related_cheaper: await getCompetitors(product, 3)
+//         })));
+
+//         const result = agg[0] || {};
+//         const priceData = result.prices?.[0] || { min: 0, max: 0 };
+
+//         return res.status(200).json({
+//             total,
+//             products,
+//             minPrices: priceData.min,
+//             maxPrices: priceData.max,
+//             filterGroups: {
+//                 categories: result.categories || [],
+//                 brands: result.brands || [],
+//                 widths: result.widths || [],
+//                 heights: result.heights || [],
+//                 diameters: result.diameters || [],
+//                 speedIndexes: result.speedIndexes || [],
+//                 lastIndexes: result.lastIndexes || [],
+//                 noises: result.noises || [],
+//                 fuelClasses: result.fuelClasses || [],
+//                 wetGrips: result.wetGrips || [],
+//             },
+//         });
+//     } catch (err) {
+//         console.error("Error in productLists:", err);
+//         return res.status(500).json({ message: "Server error" });
+//     }
+// };
+
 export const productLists = async (req, res) => {
     try {
         const {
             page = 1,
             limit = 12,
-            sort = "createdAt",
-            order = "desc",
+            sort,
+            order,
+            sortField,
+            sortOrder,
+            minPrice,
+            maxPrice,
         } = req.query;
 
         const toArray = (val) =>
             Array.isArray(val)
                 ? val
                 : val
-                    ? typeof val === "string"
-                        ? val.split(",").filter(Boolean)
+                    ? typeof val === 'string'
+                        ? val.split(',').filter(Boolean)
                         : [val]
                     : [];
 
-        // Build filters for main product search
+        // -------- Price range (numbers, optional) --------
+        const lo =
+            minPrice !== undefined && minPrice !== ''
+                ? Number(minPrice)
+                : undefined;
+        const hi =
+            maxPrice !== undefined && maxPrice !== ''
+                ? Number(maxPrice)
+                : undefined;
+
+        // Build base filters
         const filters = {
             ...(req.query.category && {
                 merchant_product_third_category: { $in: toArray(req.query.category) },
@@ -30,124 +207,106 @@ export const productLists = async (req, res) => {
             ...(req.query.brand && {
                 brand_name: { $in: toArray(req.query.brand) },
             }),
-            ...(req.query.width && {
-                width: { $in: toArray(req.query.width) },
-            }),
-            ...(req.query.height && {
-                height: { $in: toArray(req.query.height) },
-            }),
-            ...(req.query.diameter && {
-                diameter: { $in: toArray(req.query.diameter) },
-            }),
-            ...(req.query.speedIndex && {
-                speedIndex: { $in: toArray(req.query.speedIndex) },
-            }),
-            ...(req.query.lastIndex && {
-                lastIndex: { $in: toArray(req.query.lastIndex) },
-            }),
-            ...(req.query.noise && {
-                noise_class: { $in: toArray(req.query.noise) },
-            }),
-            ...(req.query.fuelClass && {
-                fuel_class: { $in: toArray(req.query.fuelClass) },
-            }),
-            ...(req.query.wetGrip && {
-                wet_grip: { $in: toArray(req.query.wetGrip) },
-            }),
+            ...(req.query.width && { width: { $in: toArray(req.query.width) } }),
+            ...(req.query.height && { height: { $in: toArray(req.query.height) } }),
+            ...(req.query.diameter && { diameter: { $in: toArray(req.query.diameter) } }),
+            ...(req.query.speedIndex && { speedIndex: { $in: toArray(req.query.speedIndex) } }),
+            ...(req.query.lastIndex && { lastIndex: { $in: toArray(req.query.lastIndex) } }),
+            ...(req.query.noise && { noise_class: { $in: toArray(req.query.noise) } }),
+            ...(req.query.fuelClass && { fuel_class: { $in: toArray(req.query.fuelClass) } }),
+            ...(req.query.wetGrip && { wet_grip: { $in: toArray(req.query.wetGrip) } }),
         };
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const sortOption = { [sort]: order === "asc" ? 1 : -1 };
+        // ---- Apply price range to either search_price or main_price ----
+        if (lo !== undefined || hi !== undefined) {
+            const range = {};
+            if (lo !== undefined) range.$gte = lo;
+            if (hi !== undefined) range.$lte = hi;
 
-        // Faceted search (filters)
-        const fieldMap = {
-            categories: "merchant_product_third_category",
-            brands: "brand_name",
-            widths: "width",
-            heights: "height",
-            diameters: "diameter",
-            speedIndexes: "speedIndex",
-            lastIndexes: "lastIndex",
-            noises: "noise_class",
-            fuelClasses: "fuel_class",
-            wetGrips: "wet_grip",
-        };
-
-        const facetStage = {};
-        for (const [facetName, field] of Object.entries(fieldMap)) {
-            const filterCopy = { ...filters };
-            delete filterCopy[field];
-            facetStage[facetName] = [
-                { $match: filterCopy },
-                { $group: { _id: `$${field}`, count: { $sum: 1 } } },
-                { $project: { name: "$_id", count: 1, _id: 0 } },
+            // If both prices exist in DB, check either one is within range
+            filters.$or = [
+                { search_price: range },
+                { main_price: range },
             ];
         }
 
+        // -------- Sort mapping --------
+        const sortFieldFinal = (sortField || sort || 'createdAt').toString();
+        const sortOrderFinal = (sortOrder || order || 'desc').toString();
+        // if frontend asks for "price", map to search_price (or main_price fallback)
+        // (For perfect fallback sorting, switch to an aggregate with $ifNull)
+        const fieldMap = {
+            price: 'search_price',
+        };
+        const mongoSortField = fieldMap[sortFieldFinal] || sortFieldFinal;
+        const sortOption = { [mongoSortField]: sortOrderFinal === 'asc' ? 1 : -1 };
+
+        const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+        // -------- Facets (ignore the current facet filter itself) --------
+        const fieldMapFacets = {
+            categories: 'merchant_product_third_category',
+            brands: 'brand_name',
+            widths: 'width',
+            heights: 'height',
+            diameters: 'diameter',
+            speedIndexes: 'speedIndex',
+            lastIndexes: 'lastIndex',
+            noises: 'noise_class',
+            fuelClasses: 'fuel_class',
+            wetGrips: 'wet_grip',
+        };
+
+        const facetStage = {};
+        for (const [facetName, field] of Object.entries(fieldMapFacets)) {
+            const filterCopy = { ...filters };
+            // Remove only the exact field (not price filters)
+            if (filterCopy[field]) delete filterCopy[field];
+            facetStage[facetName] = [
+                { $match: filterCopy },
+                { $group: { _id: `$${field}`, count: { $sum: 1 } } },
+                { $project: { name: '$_id', count: 1, _id: 0 } },
+            ];
+        }
+
+        // Price min/max from current filtered result set
         facetStage.prices = [
             { $match: filters },
             {
                 $group: {
                     _id: null,
-                    min: { $min: "$search_price" },
-                    max: { $max: "$search_price" },
+                    // use search_price if present, otherwise main_price
+                    min: { $min: { $ifNull: ['$search_price', '$main_price'] } },
+                    max: { $max: { $ifNull: ['$search_price', '$main_price'] } },
                 },
             },
         ];
 
-        // 1. Fetch main products
-        const [productsRaw, total, agg] = await Promise.all([
+        // -------- Main query ----------
+        // NOTE: Keep price fields numeric in response; format on the frontend
+        const [products, total, agg] = await Promise.all([
             Product.find(filters)
                 .sort(sortOption)
                 .skip(skip)
-                .limit(+limit)
+                .limit(parseInt(limit, 10))
                 .select(
-                    "brand_logo fuel_class related_cheaper slug in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count"
+                    'brand_logo fuel_class related_cheaper slug in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count'
                 )
                 .lean(),
             Product.countDocuments(filters),
             Product.aggregate([{ $facet: facetStage }]),
         ]);
 
-        // Now use the reusable function per product:
-        const products = await Promise.all(productsRaw.map(async (product) => ({
-            ...product,
-            cheapest_offer: typeof product.cheapest_offer === "number"
-                ? `${product.cheapest_offer.toFixed(2).replace(".", ",")}`
-                : product.cheapest_offer || "0,00",
-            expensive_offer: typeof product.expensive_offer === "number"
-                ? `${product.expensive_offer.toFixed(2).replace(".", ",")}`
-                : product.expensive_offer || "0,00",
-            search_price: typeof product.search_price === "number"
-                ? `${product.search_price.toFixed(2).replace(".", ",")}`
-                : product.search_price || "0,00",
-            main_price: typeof product.main_price === "number"
-                ? `${product.main_price.toFixed(2).replace(".", ",")}`
-                : product.main_price || "0,00",
-            offers: Array.isArray(product.offers)
-                ? product.offers.map(o => ({
-                    ...o,
-                    price: typeof o.price === "number"
-                        ? o.price.toFixed(2).replace(".", ",")
-                        : "0,00",
-                }))
-                : [],
-            savings_percent: product.savings_percent || "0%",
-            total_offers: product.total_offers || (product.offers?.length || 1),
-            zum_angebot_url: product.offers?.[0]?.aw_deep_link || "",
-            vendor_name: product.offers?.[0]?.vendor || "",
-            vendor_logo: product.offers?.[0]?.vendor_logo || "",
-            // related_cheaper: await getCompetitors(product, 3)
-        })));
-
         const result = agg[0] || {};
         const priceData = result.prices?.[0] || { min: 0, max: 0 };
 
+        // IMPORTANT: return numbers, do NOT stringify them here
+        // If you must format, do it in React UI.
         return res.status(200).json({
             total,
             products,
-            minPrices: priceData.min,
-            maxPrices: priceData.max,
+            minPrices: Number(priceData.min) || 0,
+            maxPrices: Number(priceData.max) || 0,
             filterGroups: {
                 categories: result.categories || [],
                 brands: result.brands || [],
@@ -162,11 +321,10 @@ export const productLists = async (req, res) => {
             },
         });
     } catch (err) {
-        console.error("Error in productLists:", err);
-        return res.status(500).json({ message: "Server error" });
+        console.error('Error in productLists:', err);
+        return res.status(500).json({ message: 'Server error' });
     }
 };
-
 
 // ========================================
 const relatedProductsCache = new Map();
@@ -788,6 +946,7 @@ export const GetFilterTyres = async (req, res) => {
 };
 
 
+// controller
 export const getSearchSuggestions = async (req, res) => {
     const { query } = req.query;
 
@@ -806,52 +965,57 @@ export const getSearchSuggestions = async (req, res) => {
             ],
         })
             .limit(20)
-            .select('product_name merchant_product_third_category brand_name');
+            // ✅ include slug so the UI can route by slug
+            .select('slug product_name merchant_product_third_category brand_name')
+            .lean();
 
         const suggestions = [];
         const added = new Set();
 
-        products.forEach(product => {
-            if (
-                product.product_name &&
-                !added.has(`product:${product.product_name}`)
-            ) {
+        products.forEach((p) => {
+            // Product suggestions (dedupe by slug)
+            if (p.slug && p.product_name && !added.has(`product:${p.slug}`)) {
                 suggestions.push({
-                    id: product._id,
-                    name: product.product_name,
+                    slug: p.slug,
+                    name: p.product_name,
                     type: 'Product',
                 });
-                added.add(`product:${product.product_name}`);
+                added.add(`product:${p.slug}`);
             }
 
+            // Category suggestions (dedupe by category name)
             if (
-                product.merchant_product_third_category &&
-                !added.has(`category:${product.merchant_product_third_category}`)
+                p.merchant_product_third_category &&
+                !added.has(`category:${p.merchant_product_third_category}`)
             ) {
                 suggestions.push({
-                    id: product.merchant_product_third_category,
-                    name: product.merchant_product_third_category,
+                    id: p.merchant_product_third_category,
+                    name: p.merchant_product_third_category,
                     type: 'Category',
                 });
-                added.add(`category:${product.merchant_product_third_category}`);
+                added.add(`category:${p.merchant_product_third_category}`);
             }
 
-            if (product.brand_name && !added.has(`brand:${product.brand_name}`)) {
+            // Brand suggestions (dedupe by brand name)
+            if (p.brand_name && !added.has(`brand:${p.brand_name}`)) {
                 suggestions.push({
-                    id: product.brand_name,
-                    name: product.brand_name,
+                    id: p.brand_name,
+                    name: p.brand_name,
                     type: 'Brand',
                 });
-                added.add(`brand:${product.brand_name}`);
+                added.add(`brand:${p.brand_name}`);
             }
         });
 
         res.status(200).json(suggestions);
     } catch (error) {
         console.error('Error fetching search suggestions:', error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res
+            .status(500)
+            .json({ message: 'Server error', error: error.message });
     }
 };
+
   
 
 // POST /api/products/upload-csv
