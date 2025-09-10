@@ -284,7 +284,7 @@ export const productLists = async (req, res) => {
 
         // -------- Main query ----------
         // NOTE: Keep price fields numeric in response; format on the frontend
-        const [products, total, agg] = await Promise.all([
+        const [productsRaw, total, agg] = await Promise.all([
             Product.find(filters)
                 .sort(sortOption)
                 .skip(skip)
@@ -296,6 +296,36 @@ export const productLists = async (req, res) => {
             Product.countDocuments(filters),
             Product.aggregate([{ $facet: facetStage }]),
         ]);
+                // Now use the reusable function per product:
+                const products = await Promise.all(productsRaw.map(async (product) => ({
+                    ...product,
+                    cheapest_offer: typeof product.cheapest_offer === "number"
+                        ? `${product.cheapest_offer.toFixed(2).replace(".", ",")}`
+                        : product.cheapest_offer || "0,00",
+                    expensive_offer: typeof product.expensive_offer === "number"
+                        ? `${product.expensive_offer.toFixed(2).replace(".", ",")}`
+                        : product.expensive_offer || "0,00",
+                    search_price: typeof product.search_price === "number"
+                        ? `${product.search_price.toFixed(2).replace(".", ",")}`
+                        : product.search_price || "0,00",
+                    main_price: typeof product.main_price === "number"
+                        ? `${product.main_price.toFixed(2).replace(".", ",")}`
+                        : product.main_price || "0,00",
+                    offers: Array.isArray(product.offers)
+                        ? product.offers.map(o => ({
+                            ...o,
+                            price: typeof o.price === "number"
+                                ? o.price.toFixed(2).replace(".", ",")
+                                : "0,00",
+                        }))
+                        : [],
+                    savings_percent: product.savings_percent || "0%",
+                    total_offers: product.total_offers || (product.offers?.length || 1),
+                    zum_angebot_url: product.offers?.[0]?.aw_deep_link || "",
+                    vendor_name: product.offers?.[0]?.vendor || "",
+                    vendor_logo: product.offers?.[0]?.vendor_logo || "",
+                    // related_cheaper: await getCompetitors(product, 3)
+                })));
 
         const result = agg[0] || {};
         const priceData = result.prices?.[0] || { min: 0, max: 0 };
@@ -391,13 +421,6 @@ export const getProductDetails = async (req, res) => {
     };
 
     try {
-        // const product = await Product.findOne({
-        //     $or: [
-        //         { _id: productId },
-        //         { ean: productId },
-        //         { aw_product_id: productId }
-        //     ]
-        // }).lean();
         const product = await Product.findOne({ slug }).lean();
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
