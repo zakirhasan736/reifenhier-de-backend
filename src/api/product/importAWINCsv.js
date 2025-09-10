@@ -7,6 +7,7 @@ import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
 import affiliateCloak from "../utils/affiliateCloak.js";
+import slugify from "slugify";
 
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
@@ -162,7 +163,20 @@ export function startCsvImportAsync(filePath) {
         });
 }
 
+function buildSlug(brand, name, ean) {
+    const nameWithoutDim = (name || "")
+        .replace(/\b\d{3}\/\d{2}\s?R\d{2}\b/g, "")
+        .trim();
 
+    const base = slugify(`${brand || "brand"} ${nameWithoutDim}`, {
+        lower: true,
+        strict: true,
+        trim: true,
+    });
+
+    const tail = ean ? `-${String(ean).trim()}` : "";
+    return `${base}${tail}`.replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
 
 const BATCH_SIZE = 50;
 
@@ -498,6 +512,8 @@ export async function importAWINCsv(filePath) {
                 }
                
               
+                spawn("node", ["src/api/utils/updateSlugsInBatches.js"], { stdio: "inherit" });
+                
                 spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
                 // ✅ STEP 2: Final status
                 await ImportMeta.findOneAndUpdate(
