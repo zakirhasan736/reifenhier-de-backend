@@ -1,12 +1,10 @@
-// src/start-cron.mjs
-
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import path from "path";
 import { fileURLToPath } from "url";
 import { connectDB } from "./config/db.js";
 import "./api/utils/cron-job.js";
-
+import "./api/utils/cron-job-two.js";
 // Load environment variables
 dotenv.config();
 

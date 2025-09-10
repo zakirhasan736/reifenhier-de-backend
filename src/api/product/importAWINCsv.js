@@ -497,8 +497,6 @@ export async function importAWINCsv(filePath) {
                     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
                 }
                
-                // // // ✅ Trigger competitor updater
-                // spawn("node", ["src/api/utils/updateRelatedCheaper.js"], { stdio: "inherit" });
               
                 spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
                 // ✅ STEP 2: Final status
@@ -537,9 +535,7 @@ export async function getVendorsFromDatabase(req, res) {
     }
     res.json({ vendors: Array.from(vendors).sort() });
 }
-// export function getImportProgress(req, res) {
-//     res.json(importStatus);
-// }
+
 export async function waitForImportToFinish() {
     while (importStatus.running) {
         await new Promise(resolve => setTimeout(resolve, 3000));
