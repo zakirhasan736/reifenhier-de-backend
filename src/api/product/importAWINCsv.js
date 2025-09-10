@@ -1,27 +1,37 @@
+// version script 3.0.0  importAWIN.js  (AWIN operation with inline slug creation)
 
 import fs from "fs";
 import csv from "csv-parser";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import slugify from "slugify";
 import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
 import affiliateCloak from "../utils/affiliateCloak.js";
-import slugify from "slugify";
-
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
 import { spawn } from "child_process";
-import {
-    isCarTyreGroup,
-    isValidVendor
-} from "../utils/validators.js";
+import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
 
- 
 dotenv.config();
 
 const LiveProduct = mongoose.model("Product", Product.schema, "products");
 
+/* ---------------- Inline slug helpers ---------------- */
+function stripTyreDims(name = "") {
+    // remove patterns like "205/55 R16"
+    return name.replace(/\b\d{3}\/\d{2}\s?R\d{2}\b/g, "").trim();
+}
+function buildProductSlug(brand = "", productName = "", ean = "") {
+    const base = `${brand} ${stripTyreDims(productName)}`.trim();
+    let s = slugify(base, { lower: true, strict: true });
+    if (!s && ean) s = slugify(`${brand} ${ean}`, { lower: true, strict: true });
+    // Append EAN to guarantee uniqueness/stability
+    return ean ? `${s}-${ean}` : (s || `p-${Date.now()}`);
+}
+
+/* ---------------- Import state (optional API) ---------------- */
 let importStatus = {
     running: false,
     done: false,
@@ -43,14 +53,14 @@ let importStatus = {
     vendors: [],
 };
 
-// --- Utility Functions ---
+/* ---------------- Utilities ---------------- */
 function normalizeEAN(ean) {
     if (!ean || typeof ean !== "string") return "";
     return ean.trim().replace(/^0+/, "");
 }
 function parseSafeNumber(val) {
-    if (!val || typeof val === 'undefined' || val === '' || val === 'NaN') return undefined;
-    const normalized = String(val).replace(',', '.').trim();
+    if (!val && val !== 0) return undefined;
+    const normalized = String(val).replace(",", ".").trim();
     const num = parseFloat(normalized);
     return isNaN(num) ? undefined : num;
 }
@@ -79,21 +89,43 @@ function sortOffersByVendorId(offers) {
     return [...(offers || [])].sort((a, b) => (a.vendor_id || "").localeCompare(b.vendor_id || ""));
 }
 function hasNewVendorId(existingOffers = [], newOffers = []) {
-    const existingIds = existingOffers.map(o => o.vendor_id);
-    return newOffers.some(o => !existingIds.includes(o.vendor_id));
+    const existingIds = existingOffers.map((o) => o.vendor_id);
+    return newOffers.some((o) => !existingIds.includes(o.vendor_id));
 }
 const COMPARE_FIELDS = [
-    "ean", "gtin", "upc", "aw_product_id", "merchant_product_id",
-    "product_name", "brand_name", "product_image", "description",
-    "product_url", "merchant_deep_link", "delivery_time",
-    "main_price", "product_short_description", "specifications", "condition",
-    "product_model", "dimensions", "keywords", "promotional_text",
-    "product_type", "commission_group", "category_name", "category_id",
-    "merchant_product_category_path", "currency",
-    "merchant_product_second_category", "merchant_product_third_category",
-    "in_stock", "stock_quantity", "delivery_cost", "mpn",
+    "ean",
+    "gtin",
+    "upc",
+    "aw_product_id",
+    "merchant_product_id",
+    "product_name",
+    "brand_name",
+    "product_image",
+    "description",
+    "product_url",
+    "merchant_deep_link",
+    "delivery_time",
+    "main_price",
+    "product_short_description",
+    "specifications",
+    "condition",
+    "product_model",
+    "dimensions",
+    "keywords",
+    "promotional_text",
+    "product_type",
+    "commission_group",
+    "category_name",
+    "category_id",
+    "merchant_product_category_path",
+    "currency",
+    "merchant_product_second_category",
+    "merchant_product_third_category",
+    "in_stock",
+    "stock_quantity",
+    "delivery_cost",
+    "mpn",
 ];
-
 function findChangedFields(existing, incoming) {
     const changed = [];
     const a = stripIgnoredFields(existing);
@@ -106,7 +138,6 @@ function findChangedFields(existing, incoming) {
     }
     return changed;
 }
-
 function getProductKey(row) {
     return normalizeEAN(row["ean"]);
 }
@@ -120,20 +151,18 @@ function groupRowsByProductKey(rows) {
     }
     return grouped;
 }
-
-
 function getVendorSavings(offers) {
-    // Defensive: Ensure offers is always an array
     if (!Array.isArray(offers)) offers = [];
-    const prices = offers.map(o => o.price).filter(p => typeof p === "number" && !isNaN(p) && p > 0);
+    const prices = offers.map((o) => o.price).filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
     if (!prices.length) return { savings_amount: 0, savings_percent: "0%" };
-    const min = Math.min(...prices), max = Math.max(...prices);
+    const min = Math.min(...prices),
+        max = Math.max(...prices);
     const savings_amount = max > min ? +(max - min).toFixed(2) : 0;
-    const savings_percent = (max > min) ? `-${Math.round(((max - min) / max) * 100)}%` : "0%";
+    const savings_percent = max > min ? `-${Math.round(((max - min) / max) * 100)}%` : "0%";
     return { savings_amount, savings_percent };
 }
 
-// --- Main Import Logic ---
+/* ---------------- Public API ---------------- */
 export function startCsvImportAsync(filePath) {
     importStatus = {
         ...importStatus,
@@ -153,7 +182,7 @@ export function startCsvImportAsync(filePath) {
     };
 
     importAWINCsv(filePath)
-        .catch(err => {
+        .catch((err) => {
             importStatus.error = err.message || String(err);
         })
         .finally(() => {
@@ -163,24 +192,7 @@ export function startCsvImportAsync(filePath) {
         });
 }
 
-function buildSlug(brand, name, ean) {
-    const nameWithoutDim = (name || "")
-        .replace(/\b\d{3}\/\d{2}\s?R\d{2}\b/g, "")
-        .trim();
-
-    const base = slugify(`${brand || "brand"} ${nameWithoutDim}`, {
-        lower: true,
-        strict: true,
-        trim: true,
-    });
-
-    const tail = ean ? `-${String(ean).trim()}` : "";
-    return `${base}${tail}`.replace(/-+/g, "-").replace(/^-|-$/g, "");
-}
-
 const BATCH_SIZE = 50;
-
-
 
 export async function getImportProgress(req, res) {
     try {
@@ -199,9 +211,7 @@ export async function getImportProgress(req, res) {
         }
 
         const progress =
-            meta.total > 0
-                ? Math.round(((meta.imported || 0) + (meta.updated || 0)) / meta.total * 100)
-                : 0;
+            meta.total > 0 ? Math.round(((meta.imported || 0) + (meta.updated || 0)) / meta.total * 100) : 0;
 
         res.json({
             running: meta.isRunning,
@@ -217,20 +227,24 @@ export async function getImportProgress(req, res) {
     }
 }
 
+/* ---------------- Core Import ---------------- */
 const cloudinaryUploadQueue = new Set();
+
 export async function importAWINCsv(filePath) {
     return new Promise((resolve, reject) => {
         const rows = [];
         const vendorsFound = new Set();
         let rowCount = 0;
         let totalLines = 0;
+
         try {
             totalLines = fs.readFileSync(filePath, "utf8").split(/\r?\n/).length - 1;
-        } catch (err) {
+        } catch {
             totalLines = 0;
         }
         importStatus.total = totalLines;
-        // ✅ STEP 1: Initialize DB status
+
+        // Initialize meta
         ImportMeta.findOneAndUpdate(
             { source: "AWIN" },
             {
@@ -241,11 +255,12 @@ export async function importAWINCsv(filePath) {
                     updated: 0,
                     total: totalLines,
                     lastStarted: new Date(),
-                    progress: 0
+                    progress: 0,
                 },
             },
             { upsert: true }
         ).catch(console.error);
+
         fs.createReadStream(filePath)
             .pipe(csv({ separator: ";" }))
             .on("data", (row) => {
@@ -255,6 +270,7 @@ export async function importAWINCsv(filePath) {
                 if (row["merchant_name"]) vendorsFound.add(row["merchant_name"].trim());
 
                 if (!isValidVendor(row)) return;
+
                 const groupKey = normalizeEAN(row["ean"]);
                 if (!groupKey) {
                     importStatus.skipReasons.missingEAN++;
@@ -286,30 +302,29 @@ export async function importAWINCsv(filePath) {
                             continue;
                         }
 
-                        let masterRow = vendorRows.find(r => (r["merchant_name"] || "").trim().toLowerCase() === "reifen.com");
+                        let masterRow = vendorRows.find(
+                            (r) => (r["merchant_name"] || "").trim().toLowerCase() === "reifen.com"
+                        );
                         if (!masterRow) masterRow = vendorRows[0];
+
                         const vendorPrices = vendorRows
-                            .map(r => parseSafeNumber(r["search_price"]))
-                            .filter(p => typeof p === "number" && !isNaN(p) && p > 0);
+                            .map((r) => parseSafeNumber(r["search_price"]))
+                            .filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
 
                         const maxPrice = vendorPrices.length > 0 ? Math.max(...vendorPrices) : 0;
 
-                        const offers = vendorRows.map(row => {
+                        const offers = vendorRows.map((row) => {
                             const vendorPrice = parseSafeNumber(row["search_price"]);
                             const isValidPrice = typeof vendorPrice === "number" && !isNaN(vendorPrice) && vendorPrice > 0;
 
-                            const savingsAmount = isValidPrice && maxPrice > vendorPrice
-                                ? +(maxPrice - vendorPrice).toFixed(2)
-                                : 0;
-
-                            const savingsPercent = isValidPrice && maxPrice > vendorPrice && maxPrice > 0
-                                ? `-${Math.round(((maxPrice - vendorPrice) / maxPrice) * 100)}%`
-                                : "0%";
+                            const savingsAmount = isValidPrice && maxPrice > vendorPrice ? +(maxPrice - vendorPrice).toFixed(2) : 0;
+                            const savingsPercent =
+                                isValidPrice && maxPrice > vendorPrice && maxPrice > 0
+                                    ? `-${Math.round(((maxPrice - vendorPrice) / maxPrice) * 100)}%`
+                                    : "0%";
 
                             const originalAffiliateUrl = row["aw_deep_link"];
-                            const cloakUrl = originalAffiliateUrl
-                                ? affiliateCloak.encodeAffiliateUrl(originalAffiliateUrl)
-                                : null;
+                            const cloakUrl = originalAffiliateUrl ? affiliateCloak.encodeAffiliateUrl(originalAffiliateUrl) : null;
 
                             return {
                                 aw_product_id: row["aw_product_id"],
@@ -325,7 +340,7 @@ export async function importAWINCsv(filePath) {
                                 payment_icons: VENDOR_PAYMENT_ICONS[row["merchant_name"]] || [],
                                 aw_deep_link: `/go/${row["aw_product_id"]}?from=reifendb`,
                                 original_affiliate_url: originalAffiliateUrl,
-                                affiliate_product_cloak_url: cloakUrl, // NEW FIELD
+                                affiliate_product_cloak_url: cloakUrl,
                                 delivery_cost: row["delivery_cost"],
                                 delivery_time: row["delivery_time"],
                                 product_category: row["merchant_product_third_category"],
@@ -336,14 +351,16 @@ export async function importAWINCsv(filePath) {
 
                         const { width, height, diameter } = parseTyreDimensions(masterRow["dimensions"]);
                         const { speedIndex, lastIndex } = extractIndexesFromProductName(masterRow["product_name"]);
-                        const prices = offers.map(o => o.price).filter(p => p > 0);
-                        const cheapest = Math.min(...prices);
-                        const mostExpensive = Math.max(...prices);
-                        const cheapestVendorOffer = offers.find(o => o.price === cheapest);
+                        const prices = offers.map((o) => o.price).filter((p) => p > 0);
+                        const cheapest = prices.length ? Math.min(...prices) : 0;
+                        const mostExpensive = prices.length ? Math.max(...prices) : 0;
+                        const cheapestVendorOffer = offers.find((o) => o.price === cheapest);
                         const savings = getVendorSavings(offers);
 
+                        const ean = normalizeEAN(masterRow["ean"]);
+
                         products[groupKey] = {
-                            ean: normalizeEAN(masterRow["ean"]),
+                            ean,
                             gtin: masterRow["gtin"],
                             upc: masterRow["upc"],
                             aw_product_id: masterRow["aw_product_id"],
@@ -353,10 +370,20 @@ export async function importAWINCsv(filePath) {
                             brand_logo: findLogo("brands", masterRow["brand_name"]),
                             category_name: masterRow["category_name"],
                             category_id: masterRow["category_id"],
-                            product_image: masterRow["merchant_image_url"] || masterRow["aw_image_url"] || masterRow["aw_thumb_url"] || masterRow["large_image"] || masterRow["alternate_image"] || masterRow["alternate_image_two"] || masterRow["alternate_image_three"] || masterRow["alternate_image_four"],
+                            product_image:
+                                masterRow["merchant_image_url"] ||
+                                masterRow["aw_image_url"] ||
+                                masterRow["aw_thumb_url"] ||
+                                masterRow["large_image"] ||
+                                masterRow["alternate_image"] ||
+                                masterRow["alternate_image_two"] ||
+                                masterRow["alternate_image_three"] ||
+                                masterRow["alternate_image_four"],
                             description: masterRow["description"],
                             product_affiliate_url: masterRow["aw_deep_link"],
-                            product_url: cheapestVendorOffer ? cheapestVendorOffer.aw_deep_link : `/go/${masterRow["aw_product_id"]}?from=reifendb`,
+                            product_url: cheapestVendorOffer
+                                ? cheapestVendorOffer.aw_deep_link
+                                : `/go/${masterRow["aw_product_id"]}?from=reifendb`,
                             currency: masterRow["currency"],
                             vendor: masterRow["merchant_name"],
                             merchant_deep_link: masterRow["merchant_deep_link"],
@@ -373,20 +400,21 @@ export async function importAWINCsv(filePath) {
                             cheapest_offer: cheapest,
                             expensive_offer: mostExpensive,
                             payment_methods: cheapestVendorOffer ? cheapestVendorOffer.payment_icons : [],
-                            cheapest_vendor: cheapestVendorOffer ? {
-                                aw_product_id: cheapestVendorOffer.aw_product_id,
-                                vendor_id: cheapestVendorOffer.vendor_id,
-                                vendor: cheapestVendorOffer.vendor,
-                                vendor_id: cheapestVendorOffer.vendor_id,
-                                vendor_logo: cheapestVendorOffer.vendor_logo,
-                                aw_deep_link: cheapestVendorOffer.aw_deep_link,
-                                payment_icons: cheapestVendorOffer.payment_icons,
-                                delivery_cost: cheapestVendorOffer.delivery_cost,
-                                original_affiliate_url: cheapestVendorOffer.original_affiliate_url,
-                                affiliate_product_cloak_url: cheapestVendorOffer.original_affiliate_url
-                                    ? affiliateCloak.encodeAffiliateUrl(cheapestVendorOffer.original_affiliate_url)
-                                    : null, // NEW FIELD
-                            } : null,
+                            cheapest_vendor: cheapestVendorOffer
+                                ? {
+                                    aw_product_id: cheapestVendorOffer.aw_product_id,
+                                    vendor_id: cheapestVendorOffer.vendor_id,
+                                    vendor: cheapestVendorOffer.vendor,
+                                    vendor_logo: cheapestVendorOffer.vendor_logo,
+                                    aw_deep_link: cheapestVendorOffer.aw_deep_link,
+                                    payment_icons: cheapestVendorOffer.payment_icons,
+                                    delivery_cost: cheapestVendorOffer.delivery_cost,
+                                    original_affiliate_url: cheapestVendorOffer.original_affiliate_url,
+                                    affiliate_product_cloak_url: cheapestVendorOffer.original_affiliate_url
+                                        ? affiliateCloak.encodeAffiliateUrl(cheapestVendorOffer.original_affiliate_url)
+                                        : null,
+                                }
+                                : null,
                             colour: masterRow["colour"],
                             product_short_description: masterRow["product_short_description"],
                             specifications: masterRow["specifications"],
@@ -414,84 +442,104 @@ export async function importAWINCsv(filePath) {
                             speedIndex,
                             lastIndex,
                             last_imported_at: new Date(),
-                            group_key: groupKey
+                            group_key: groupKey,
+
+                            // ✅ NEW: inline slug creation (EAN appended for uniqueness)
+                            slug: buildProductSlug(masterRow["brand_name"], masterRow["product_name"], ean),
                         };
                     }
-                    // console.log(`✔️ Cloudinary upload complete: ${cloudUploadCount} / ${totalToUpload} products uploaded to Cloudinary.`);
+
                     const csvEanList = Object.keys(products);
                     const allDbProducts = await LiveProduct.find({ ean: { $in: csvEanList } }).lean();
                     const dbEanToProduct = {};
-                    allDbProducts.forEach(prod => {
+                    allDbProducts.forEach((prod) => {
                         if (prod.ean) dbEanToProduct[normalizeEAN(prod.ean)] = prod;
                     });
-                  
+
                     const bulkOps = [];
+
                     for (const ean of csvEanList) {
                         const newProd = products[ean];
                         const existing = dbEanToProduct[ean];
-                        const prices = newProd.offers.map(o => o.price).filter(p => typeof p === "number" && !isNaN(p) && p > 0);
-                        const cheapest_offer = prices.length ? Math.min(...prices) : 0;
-                        const expensive_offer = prices.length ? Math.max(...prices) : 0;
+
+                        const priceList = newProd.offers.map((o) => o.price).filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
+                        const cheapest_offer = priceList.length ? Math.min(...priceList) : 0;
+                        const expensive_offer = priceList.length ? Math.max(...priceList) : 0;
                         const savings_amount = expensive_offer > cheapest_offer ? +(expensive_offer - cheapest_offer).toFixed(2) : 0;
-                        const savings_percent = (expensive_offer > cheapest_offer) ? `-${Math.round(((expensive_offer - cheapest_offer) / expensive_offer) * 100)}%` : "0%";
+                        const savings_percent =
+                            expensive_offer > cheapest_offer ? `-${Math.round(((expensive_offer - cheapest_offer) / expensive_offer) * 100)}%` : "0%";
 
                         newProd.cheapest_offer = cheapest_offer;
                         newProd.expensive_offer = expensive_offer;
                         newProd.savings_amount = savings_amount;
                         newProd.savings_percent = savings_percent;
                         newProd.search_price = cheapest_offer;
-                        newProd.cheapest_price_display = cheapest_offer ? `${cheapest_offer.toFixed(2).replace('.', ',')} €` : undefined;
-                        newProd.expensive_price_display = expensive_offer ? `${expensive_offer.toFixed(2).replace('.', ',')} €` : undefined;
+                        newProd.cheapest_price_display = cheapest_offer ? `${cheapest_offer.toFixed(2).replace(".", ",")} €` : undefined;
+                        newProd.expensive_price_display = expensive_offer ? `${expensive_offer.toFixed(2).replace(".", ",")} €` : undefined;
                         newProd.savings_badge = savings_amount > 0 ? `Spare ${savings_percent}` : undefined;
                         newProd.offer_count_display = newProd.offers.length > 1 ? `${newProd.offers.length} Angebote` : "1 Angebot";
 
+                        // ✅ Ensure slug exists for both insert and update paths
+                        if (existing?.slug) {
+                            newProd.slug = existing.slug; // keep existing slug for SEO stability
+                        } else if (!newProd.slug) {
+                            newProd.slug = buildProductSlug(newProd.brand_name, newProd.product_name, newProd.ean);
+                        }
+
                         if (!existing) {
-                            const newProd = products[ean];
                             importStatus.imported++;
-                            await ImportMeta.updateOne(
-                                { source: "AWIN" },
-                                {
-                                    $inc: { imported: 1 }
-                                }
-                            );
+                            await ImportMeta.updateOne({ source: "AWIN" }, { $inc: { imported: 1 } });
 
                             bulkOps.push({ insertOne: { document: newProd } });
                             importStatus.debugLog.push(`[INSERT] ${ean}`);
-                            if (newProd.product_image.includes("reifen.com")) {
+                            if (String(newProd.product_image || "").includes("reifen.com")) {
                                 cloudinaryUploadQueue.add(ean);
                             }
                         } else {
+                            // keep current local image path if any
                             newProd.product_image = existing.product_image;
+
                             const updateProd = { ...newProd, product_image: existing.product_image };
                             const existingOffersSorted = sortOffersByVendorId(existing.offers);
                             const newOffersSorted = sortOffersByVendorId(newProd.offers);
-                            const cleanExisting = { ...stripIgnoredFields(existing), offers: existingOffersSorted, product_image: existing.product_image };
-                            const cleanNew = { ...stripIgnoredFields(updateProd), offers: newOffersSorted, product_image: existing.product_image };
+                            const cleanExisting = {
+                                ...stripIgnoredFields(existing),
+                                offers: existingOffersSorted,
+                                product_image: existing.product_image,
+                            };
+                            const cleanNew = {
+                                ...stripIgnoredFields(updateProd),
+                                offers: newOffersSorted,
+                                product_image: existing.product_image,
+                            };
 
                             if (!isEqual(cleanExisting, cleanNew)) {
                                 const reasons = findChangedFields(existing, newProd);
                                 if (hasNewVendorId(existing.offers || [], newProd.offers)) reasons.push("new_vendor_id");
-                                importStatus.updated++;
-                                await ImportMeta.updateOne(
-                                    { source: "AWIN" },
-                                    {
-                                        $inc: { updated: 1 }
-                                    }
-                                );
 
-                                bulkOps.push({ updateOne: { filter: { _id: existing._id }, update: { $set: newProd } } });
+                                importStatus.updated++;
+                                await ImportMeta.updateOne({ source: "AWIN" }, { $inc: { updated: 1 } });
+
+                                bulkOps.push({
+                                    updateOne: {
+                                        filter: { _id: existing._id },
+                                        update: { $set: newProd }, // includes slug
+                                    },
+                                });
                                 importStatus.debugLog.push(`[UPDATE] ${ean} - Reasons: ${reasons.join(", ")}`);
                             } else {
                                 importStatus.skipped++;
                             }
                         }
                     }
+
                     if (bulkOps.length) await LiveProduct.bulkWrite(bulkOps);
                 }
 
+                // Delete absent EANs (optional)
                 const csvEanSet = new Set(Object.keys(grouped));
-                const allDbEans = (await LiveProduct.find({}, { ean: 1 })).map(p => normalizeEAN(p.ean)).filter(Boolean);
-                const toDeleteEans = allDbEans.filter(dbEan => !csvEanSet.has(dbEan));
+                const allDbEans = (await LiveProduct.find({}, { ean: 1 })).map((p) => normalizeEAN(p.ean)).filter(Boolean);
+                const toDeleteEans = allDbEans.filter((dbEan) => !csvEanSet.has(dbEan));
                 if (toDeleteEans.length > 0) {
                     const deleted = await LiveProduct.deleteMany({ ean: { $in: toDeleteEans } });
                     importStatus.deleted = deleted.deletedCount || 0;
@@ -499,23 +547,22 @@ export async function importAWINCsv(filePath) {
                     importStatus.deleted = 0;
                 }
 
-                    importStatus.done = true;
-                    importStatus.finishedAt = new Date();
-                    importStatus.progress = 100;
-                
-                // console.log(`✅ Import done. Total EAN groups: ${allDbEans.length}, Batches: ${batchCount}, Vendors found: ${[...vendorsFound].join(", ")}`);
-                console.log(`✅ Import Summary: New: ${importStatus.imported}, Updated: ${importStatus.updated}, Skipped: ${importStatus.skipped}, Deleted: ${importStatus.deleted}`);
+                importStatus.done = true;
+                importStatus.finishedAt = new Date();
+                importStatus.progress = 100;
 
-                // only trigger Cloudinary upload if there are new reifen.com images
+                console.log(
+                    `✅ Import Summary: New: ${importStatus.imported}, Updated: ${importStatus.updated}, Skipped: ${importStatus.skipped}, Deleted: ${importStatus.deleted}`
+                );
+
+                // trigger image downloader if needed
                 if (cloudinaryUploadQueue.size > 0) {
                     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
                 }
-               
-              
-                spawn("node", ["src/api/utils/updateSlugsInBatches.js"], { stdio: "inherit" });
-                
+
+                // trigger scraper (as you had)
                 spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
-                // ✅ STEP 2: Final status
+
                 await ImportMeta.findOneAndUpdate(
                     { source: "AWIN" },
                     {
@@ -523,7 +570,7 @@ export async function importAWINCsv(filePath) {
                             isRunning: false,
                             done: true,
                             lastSuccess: new Date(),
-                            progress: 100
+                            progress: 100,
                         },
                     }
                 );
@@ -539,13 +586,13 @@ export async function importAWINCsv(filePath) {
 
 export function getVendorsFromLastImport(req, res) {
     res.json({ vendors: importStatus.vendors });
-
 }
+
 export async function getVendorsFromDatabase(req, res) {
     const products = await LiveProduct.find({}, { offers: 1 }).lean();
     const vendors = new Set();
     for (const prod of products) {
-        (prod.offers || []).forEach(offer => {
+        (prod.offers || []).forEach((offer) => {
             if (offer.vendor) vendors.add(offer.vendor);
         });
     }
@@ -554,6 +601,6 @@ export async function getVendorsFromDatabase(req, res) {
 
 export async function waitForImportToFinish() {
     while (importStatus.running) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
     }
 }
