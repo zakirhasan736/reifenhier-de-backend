@@ -556,9 +556,9 @@ export async function importAWINCsv(filePath) {
                 );
 
                 // trigger image downloader if needed
-                if (cloudinaryUploadQueue.size > 0) {
-                    spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
-                }
+                // if (cloudinaryUploadQueue.size > 0) {
+                //     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
+                // }
 
                 // trigger scraper (as you had)
                 spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
