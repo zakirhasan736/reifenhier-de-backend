@@ -483,7 +483,7 @@ export async function importAWINCsv(filePath) {
                         if (existing?.slug) {
                             newProd.slug = existing.slug; // keep existing slug for SEO stability
                         } else if (!newProd.slug) {
-                            newProd.slug = buildProductSlug(newProd.brand_name, newProd.product_name, newProd.ean);
+                            newProd.slug = buildProductSlug(`reifencheckde`, newProd.brand_name, newProd.product_name, newProd.ean);
                         }
 
                         if (!existing) {
