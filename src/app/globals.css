@@ -1,26 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap');
 @import "tailwindcss";
+@plugin "daisyui";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+  :root{
+            --border-color: #ededed;
+            --primary-color: #3a64f6;
+            --font-primary: 'Montserrat', sans-serif;
+            --font-secondary: 'Noto Sans', sans-serif;
+            --font-tertiary: 'Noto Sans', sans-serif;
+            --font-quaternary: 'Noto Sans', sans-serif;
+            --mono-100: #333;
+            --mono-90: #474648;
+            --mono-80: #6B686E;
+            --mono-70: #949494;
+            --mono-60: #D6D6D6B2;
+            --mono-50: #C9C8CA;
+            --mono-40: #E6E3E7;
+            --mono-0: #FFFFFF;
+            --primary-50: #565656;
+            --primary-70: #000000;
+            --secondary-100: #333;
+            --error: #E50035;
+            --success: #8284FFB2;
+            --sky-blue: #3a64f6;
+            --opacity-color: #3a63f623;
+            --bg-opacity: #ededed63;
+            --neutral-light: #AAAAAA;
+        }
+@theme {
+        --font-primary: var(--primary-font);
+        --font-secondary: var(--secondary-font);
+        --font-tertiary: var(--tertiary-font);
+        --font-quaternary: var(--quaternary-font);
+        --color-mono-100: var(--mono-100);
+        --color-mono-90: var(--mono-90);
+        --color-mono-80: var(--mono-80);
+        --color-mono-70: var(--mono-70);
+        --color-mono-60: var(--mono-60);
+        --color-mono-50: var(--mono-50);
+        --color-mono-40: var(--mono-40);
+        --color-mono-0: var(--mono-0);
+        --color-primary-100: var(--primary-color);
+        --color-primary-50: var(--primary-50);
+        --color-primary-70: var(--primary-70);
+        --color-secondary-100: var(--secondary-100);
+        --color-secondary-50: var(--secondary-50);
+        --color-error: var(--error);
+        --color-success: var(--success);
+        --color-sky-blue: var(--sky-blue);
+        --color-neutral-light: var(--neutral-light);
+        --color-border-100: var(--border-color);
+        --color-opacity: var(--opacity-color);
+         --color-bg-opacity: var(--bg-opacity);
+      }
+@layer base {
+   * {
+      box-sizing: border-box;
+      border: 0;
+      padding: 0;
+      
+    } 
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+    body {
+      font-family: var(--font-primary);
+      background-color: var(--color-bg-opacity);
+      color: var(--color-mono-100);
+      line-height: 1.6;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-family: var(--font-secondary);
+      color: var(--color-primary-100);
+    }
+    p {
+      font-family: var(--font-tertiary);
+      color: var(--color-mono-70);
+    }
+    
 }
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .input-blog-tag,
+  .input-blog-description,
+  .input-blog-title{
+    padding: 12px 16px !important; 
+    border-radius: 4px !important; 
+    margin-bottom: 10px !important;
+  };
 }
