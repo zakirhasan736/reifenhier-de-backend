@@ -11,7 +11,7 @@ import { findLogo } from "../utils/logoFinder.js";
 import affiliateCloak from "../utils/affiliateCloak.js";
 import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
-import { spawn } from "child_process";
+// import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
 
 dotenv.config();
@@ -560,8 +560,7 @@ export async function importAWINCsv(filePath) {
                 //     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
                 // }
 
-                // trigger scraper (as you had)
-                spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
+              
 
                 await ImportMeta.findOneAndUpdate(
                     { source: "AWIN" },

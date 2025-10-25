@@ -40,5 +40,22 @@ export const VENDOR_PAYMENT_ICONS = {
     "Tyrigo DE": [
         "/images/icons/payments/paypal.svg",
     ],
+    "Goodwheel DE": [
+        "/images/icons/payments/Visa.png",
+        "/images/icons/payments/Mastercard.png",
+        "/images/icons/payments/paypal.svg",
+        "/images/icons/payments/Rechnung.png",
+        "/images/icons/payments/Vorkasse.png",
+        "/images/icons/payments/Klarna.svg",
+    ],
+    "Tirendo DE": [
+        "/images/icons/payments/Visa.png",
+        "/images/icons/payments/Mastercard.png",
+        "/images/icons/payments/paypal.svg",
+        "/images/icons/payments/bank-transfer.png",
+        "/images/icons/payments/American_Express.png",
+        "/images/icons/payments/amazon-pay.svg",
+        "/images/icons/payments/sepa.png",
+    ],
 };
   

@@ -117,6 +117,7 @@ import ImportMeta from "../../models/ImportMeta.js";
 import Product from "../../models/product.js";
 import { startCsvImportAsync } from "../product/importAWINCsv.js";
 import { mergeOldReifen24Offers } from "../product/mergeReifen24Offers.js";
+import { spawn } from "child_process";
 
 dotenv.config();
 
@@ -260,7 +261,10 @@ async function attemptCsvImport() {
         }
 
         console.log("🎉 [CRON] Full import + merge cycle completed successfully.");
-
+        // ✅ Step 3: Run scraper AFTER both imports
+        console.log("🕷 [CRON] Step 3: Running missing Reifen data scraper...");
+        spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], { stdio: "inherit" });
+        console.log("✅ [CRON] Scraper started successfully.");
         // Cleanup
         setTimeout(() => {
             fs.unlink(tmpPath, (err) => {
