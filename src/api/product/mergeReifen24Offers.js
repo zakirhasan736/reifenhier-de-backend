@@ -1,4 +1,4 @@
-// version script 3.0.0 — mergeReifen24Offers.js
+// version script 3.1.0 — mergeReifen24Offers.js (batched merge for performance)
 import fetch from "node-fetch";
 import csv from "csv-parser";
 import mongoose from "mongoose";
@@ -7,16 +7,17 @@ import { findLogo } from "../utils/logoFinder.js";
 
 const LiveProduct = mongoose.model("Product", Product.schema, "products");
 
-// --- Helper to normalize EAN ---
 function normalizeEAN(ean) {
     if (!ean || typeof ean !== "string") return "";
     return ean.trim().replace(/^0+/, "");
 }
 
-export async function mergeOldReifen24Offers(oldCsvUrl) {
-    console.log("📦 [MERGE] Starting Reifen24 merge operation...");
+const BATCH_SIZE = 30; // you can tune this to 500–2000 depending on memory
 
-    // --- Step 1: Load the old Reifen24 offers ---
+export async function mergeOldReifen24Offers(oldCsvUrl) {
+    console.log("📦 [MERGE] Starting Reifen24 merge operation (batched)...");
+
+    // --- Step 1: Load offers from CSV into memory ---
     const offersByEan = {};
     await new Promise((resolve, reject) => {
         fetch(oldCsvUrl)
@@ -54,38 +55,71 @@ export async function mergeOldReifen24Offers(oldCsvUrl) {
             .catch(reject);
     });
 
-    console.log(`✅ [MERGE] Loaded ${Object.keys(offersByEan).length} Reifen24 EANs from old feed.`);
+    const allEans = Object.keys(offersByEan);
+    const totalEans = allEans.length;
+    console.log(`✅ [MERGE] Loaded ${totalEans} Reifen24 EANs from old feed.`);
 
-    // --- Step 2: Apply Reifen24 offers to DB ---
-    const eanList = Object.keys(offersByEan);
+    // --- Step 2: Batch process merges ---
     let mergedCount = 0;
     let skipped = 0;
+    const totalBatches = Math.ceil(totalEans / BATCH_SIZE);
 
-    for (const ean of eanList) {
-        const newOffers = offersByEan[ean];
-        const product = await LiveProduct.findOne({ ean });
+    for (let batch = 0; batch < totalBatches; batch++) {
+        const startIndex = batch * BATCH_SIZE;
+        const endIndex = Math.min(startIndex + BATCH_SIZE, totalEans);
+        const batchEans = allEans.slice(startIndex, endIndex);
 
-        if (!product) {
-            skipped++;
-            continue;
-        }
-
-        const alreadyExists = (product.offers || []).some((o) =>
-            o.vendor?.toLowerCase().includes("reifen24")
+        console.log(
+            `🧩 [MERGE] Processing batch ${batch + 1}/${totalBatches} (${startIndex + 1}-${endIndex})`
         );
 
-        if (alreadyExists) {
-            console.log(`ℹ️ [MERGE] Reifen24 offer already exists for ${ean}, skipping.`);
-            skipped++;
-            continue;
+        // Fetch all products for this batch
+        const dbProducts = await LiveProduct.find({ ean: { $in: batchEans } });
+
+        const bulkOps = [];
+
+        for (const product of dbProducts) {
+            const ean = normalizeEAN(product.ean);
+            const newOffers = offersByEan[ean] || [];
+
+            const alreadyExists = (product.offers || []).some((o) =>
+                o.vendor?.toLowerCase().includes("reifen24")
+            );
+
+            if (alreadyExists) {
+                skipped++;
+                continue;
+            }
+
+            // Merge new offers
+            product.offers.push(...newOffers);
+            product.total_offers = product.offers.length;
+
+            bulkOps.push({
+                updateOne: {
+                    filter: { _id: product._id },
+                    update: { $set: { offers: product.offers, total_offers: product.total_offers } },
+                },
+            });
+            mergedCount++;
         }
 
-        console.log(`🧩 [MERGE] Adding Reifen24 offer(s) for EAN ${ean}`);
-        product.offers.push(...newOffers);
-        product.total_offers = product.offers.length;
-        await product.save();
-        mergedCount++;
+        if (bulkOps.length > 0) {
+            await LiveProduct.bulkWrite(bulkOps);
+            console.log(
+                `✅ [MERGE] Batch ${batch + 1}/${totalBatches} completed — ${bulkOps.length} products updated.`
+            );
+        } else {
+            console.log(`ℹ️ [MERGE] Batch ${batch + 1}/${totalBatches} — no new offers added.`);
+        }
     }
 
-    console.log(`🎉 [MERGE COMPLETE] Added Reifen24 offers to ${mergedCount} products. Skipped ${skipped}.`);
+    console.log(`
+🎉 [MERGE COMPLETE]
+──────────────────────────
+✅ Total merged products: ${mergedCount}
+⏭ Skipped (already had Reifen24): ${skipped}
+📦 Total EANs processed: ${totalEans}
+──────────────────────────
+`);
 }

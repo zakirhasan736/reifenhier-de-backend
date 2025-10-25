@@ -103,7 +103,8 @@
 // }
 
 // cron.schedule("* * * * *", attemptCsvImport);
-// version script 3.0.0 — cron-job.js
+// version script 3.0.1 — cron-job.js (sequential AWIN + Reifen24)
+// version 3.1.0 — cron-job.js (detailed summary, dedup, safe sequential import)
 import cron from "node-cron";
 import fetch from "node-fetch";
 import AdmZip from "adm-zip";
@@ -113,7 +114,8 @@ import path from "path";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import ImportMeta from "../../models/ImportMeta.js";
-import { startCsvImportAsync, waitForImportToFinish } from "../product/importAWINCsv.js";
+import Product from "../../models/product.js";
+import { startCsvImportAsync } from "../product/importAWINCsv.js";
 import { mergeOldReifen24Offers } from "../product/mergeReifen24Offers.js";
 
 dotenv.config();
@@ -125,16 +127,12 @@ const MONGO_URI = process.env.MONGODB_URI;
 const RETRY_DELAY_MS = 2 * 60 * 1000;
 const SUCCESS_DELAY_MS = 3 * 60 * 60 * 1000;
 const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
-
 let isRunning = false;
 
-// Mongo connect
+/* ---------------------- Mongo Connection ---------------------- */
 async function connectDB() {
     try {
-        await mongoose.connect(MONGO_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-        });
+        await mongoose.connect(MONGO_URI);
         console.log("[DB] ✅ Connected to MongoDB");
     } catch (err) {
         console.error("[DB] ❌ Connection error:", err.message);
@@ -142,6 +140,7 @@ async function connectDB() {
     }
 }
 
+/* ---------------------- Utility Helpers ---------------------- */
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 function cleanOldFiles() {
@@ -154,6 +153,48 @@ function cleanOldFiles() {
     }
 }
 
+/* ---------------------- Deduplicate EANs in DB ---------------------- */
+async function removeDuplicateEANs() {
+    console.log("🧹 [CLEANUP] Checking for duplicate EANs...");
+    const ProductModel = mongoose.model("Product", Product.schema, "products");
+    const duplicates = await ProductModel.aggregate([
+        { $group: { _id: "$ean", ids: { $push: "$_id" }, count: { $sum: 1 } } },
+        { $match: { count: { $gt: 1 } } },
+    ]);
+
+    let deletedCount = 0;
+    for (const dup of duplicates) {
+        dup.ids.shift(); // keep one
+        const res = await ProductModel.deleteMany({ _id: { $in: dup.ids } });
+        deletedCount += res.deletedCount;
+    }
+
+    if (deletedCount > 0) {
+        console.log(`✅ [CLEANUP] Removed ${deletedCount} duplicate EAN documents.`);
+    } else {
+        console.log("[CLEANUP] No duplicate EANs found.");
+    }
+}
+
+/* ---------------------- DB-Aware Waiter ---------------------- */
+async function waitForImportToFinish() {
+    console.log("[WAIT] Checking AWIN import status in DB...");
+    let meta;
+    const start = Date.now();
+
+    while (true) {
+        meta = await ImportMeta.findOne({ source: "AWIN" });
+        if (!meta?.isRunning) break;
+        process.stdout.write(".");
+        await new Promise((r) => setTimeout(r, 5000));
+    }
+
+    const duration = ((Date.now() - start) / 1000 / 60).toFixed(1);
+    console.log(`\n[WAIT] ✅ AWIN import completed (took ${duration} min).`);
+    return meta;
+}
+
+/* ---------------------- AWIN Import + Merge ---------------------- */
 async function attemptCsvImport() {
     if (isRunning || !AWIN_CSV_URL) return;
 
@@ -163,14 +204,16 @@ async function attemptCsvImport() {
 
     if (now - lastSuccess < SUCCESS_DELAY_MS) {
         const minutesLeft = Math.ceil((SUCCESS_DELAY_MS - (now - lastSuccess)) / 60000);
-        console.log(`[CRON] Skipping: next AWIN import in ~${minutesLeft} min.`);
+        console.log(`[CRON] ⏸ Skipping: next AWIN import in ~${minutesLeft} min.`);
         return;
     }
 
     isRunning = true;
 
     try {
+        await removeDuplicateEANs();
         cleanOldFiles();
+
         console.log("🚀 [CRON] Step 1: Downloading and importing new AWIN feed...");
 
         const res = await fetch(AWIN_CSV_URL);
@@ -185,14 +228,29 @@ async function attemptCsvImport() {
         fs.writeFileSync(tmpPath, zip.readFile(csvEntry));
         console.log(`[CRON] CSV extracted → ${tmpPath}`);
 
-        // Step 1: run new AWIN import
         startCsvImportAsync(tmpPath);
         console.log("[CRON] Waiting for AWIN import to finish...");
-        await waitForImportToFinish();
+        const finalMeta = await waitForImportToFinish();
 
-        console.log("✅ [CRON] Step 1 complete — AWIN import done.");
+        // Step 1 Summary
+        const total = finalMeta?.total || 0;
+        const imported = finalMeta?.imported || 0;
+        const updated = finalMeta?.updated || 0;
+        const deleted = finalMeta?.deleted || 0;
+        const doneAt = finalMeta?.lastSuccess ? new Date(finalMeta.lastSuccess).toLocaleString() : "N/A";
+        console.log(`
+📊 [AWIN IMPORT SUMMARY]
+────────────────────────────
+🆕 Imported:   ${imported}
+🔁 Updated:    ${updated}
+🚫 Deleted:    ${deleted}
+⏭ Skipped:    ${total - imported - updated}
+📦 Total Rows: ${total}
+🕒 Finished:   ${doneAt}
+────────────────────────────
+`);
 
-        // Step 2: merge Reifen24 offers
+        // Step 2: merge Reifen24
         if (OLD_REIFEN24_CSV_URL) {
             console.log("🚀 [CRON] Step 2: Merging Reifen24 offers from old feed...");
             await mergeOldReifen24Offers(OLD_REIFEN24_CSV_URL);
@@ -201,7 +259,15 @@ async function attemptCsvImport() {
             console.log("⚠️ [CRON] OLD_REIFEN24_CSV_URL not set, skipping merge.");
         }
 
-        console.log("🎉 [CRON] Full import and merge cycle finished successfully.");
+        console.log("🎉 [CRON] Full import + merge cycle completed successfully.");
+
+        // Cleanup
+        setTimeout(() => {
+            fs.unlink(tmpPath, (err) => {
+                if (err) console.error("[CLEANUP] Failed to delete temp CSV:", err.message);
+                else console.log("[CLEANUP] Temp CSV deleted:", tmpPath);
+            });
+        }, 15000);
     } catch (err) {
         console.error("[CRON ERROR]", err.message);
         setTimeout(attemptCsvImport, RETRY_DELAY_MS);
@@ -210,7 +276,7 @@ async function attemptCsvImport() {
     }
 }
 
-// Initialize and schedule
+/* ---------------------- Init & Schedule ---------------------- */
 await connectDB();
 cron.schedule("* * * * *", attemptCsvImport);
 console.log("[CRON] Scheduled AWIN import + Reifen24 merge every minute (dev mode).");
