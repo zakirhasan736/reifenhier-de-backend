@@ -1,7 +1,7 @@
 import FeaturedSettings from '../../models/FeaturedSettings.js';
 import Product from '../../models/product.js';
 import { startCsvImportAsync } from "./importAWINCsv.js";
-// import { getCompetitors } from '../utils/competitor.js';
+
 
 
 export const productLists = async (req, res) => {
@@ -624,96 +624,7 @@ export const getFeaturedProducts = async (req, res) => {
     }
 };
 
-// export const GetFilterTyres = async (req, res) => {
-//     try {
-//         const {
-//             category,
-//             width,
-//             height,
-//             diameter,
-//             lastIndex,
-//             wetGrip,
-//             fuelClass,
-//             noise,
-//         } = req.query;
 
-//         const baseQuery = {};
-//         if (category) baseQuery.merchant_product_third_category = category;
-//         if (width) baseQuery.width = width;
-//         if (height) baseQuery.height = height;
-//         if (diameter) baseQuery.diameter = diameter;
-//         if (lastIndex) baseQuery.lastIndex = lastIndex;
-//         if (wetGrip) baseQuery.wet_grip = wetGrip;
-//         if (fuelClass) baseQuery.fuel_class = fuelClass;
-//         if (noise) baseQuery.noise_class = noise;
-
-
-//         const buildFacetPipeline = (fieldToGroup, removeFieldFromQuery) => {
-//             const matchStage = { ...baseQuery };
-//             delete matchStage[removeFieldFromQuery];
-
-//             return [
-//                 { $match: matchStage },
-//                 {
-//                     $group: {
-//                         _id: `$${fieldToGroup}`,
-//                         count: { $sum: 1 },
-//                     },
-//                 },
-//                 {
-//                     $project: {
-//                         name: '$_id',
-//                         count: 1,
-//                         _id: 0,
-//                     },
-//                 },
-//                 {
-//                     $sort: { count: -1 },
-//                 },
-//             ];
-//         };
-
-//         const result = await Product.aggregate([
-//             {
-//                 $facet: {
-//                     categories: buildFacetPipeline('merchant_product_third_category', 'merchant_product_third_category'),
-//                     widths: buildFacetPipeline('width', 'width'),
-//                     heights: buildFacetPipeline('height', 'height'),
-//                     diameters: buildFacetPipeline('diameter', 'diameter'),
-//                     lastIndexes: buildFacetPipeline('lastIndex', 'lastIndex'),
-//                     wetGrips: buildFacetPipeline('wet_grip', 'wet_grip'),
-//                     fuelClasses: buildFacetPipeline('fuel_class', 'fuel_class'),
-//                     noises: buildFacetPipeline('noise_class', 'noise_class'),
-//                 },
-//             },
-//         ]);
-
-//         const {
-//             categories,
-//             widths,
-//             heights,
-//             diameters,
-//             lastIndexes,
-//             wetGrips,
-//             fuelClasses,
-//             noises,
-//         } = result[0];
-
-//         return res.status(200).json({
-//             categories,
-//             widths,
-//             heights,
-//             diameters,
-//             lastIndexes,
-//             wetGrips,
-//             fuelClasses,
-//             noises,
-//         });
-//     } catch (err) {
-//         console.error('Error in GetFilterTyres:', err);
-//         return res.status(500).json({ message: 'Server error', error: err.message });
-//     }
-// };
 export const GetFilterTyres = async (req, res) => {
     try {
         const {
@@ -826,7 +737,7 @@ export const getSearchSuggestions = async (req, res) => {
         })
             .limit(20)
             // ✅ include slug so the UI can route by slug
-            .select('slug product_name merchant_product_third_category brand_name')
+            .select('slug product_name merchant_product_third_category brand_name product_image')
             .lean();
 
         const suggestions = [];
@@ -834,36 +745,37 @@ export const getSearchSuggestions = async (req, res) => {
 
         products.forEach((p) => {
             // Product suggestions (dedupe by slug)
-            if (p.slug && p.product_name && !added.has(`product:${p.slug}`)) {
+            if (p.slug && p.product_name && !added.has(`produkt:${p.slug}`)) {
                 suggestions.push({
                     slug: p.slug,
                     name: p.product_name,
-                    type: 'Product',
+                    type: 'Produkt',
+                    image: p.product_image || null,
                 });
-                added.add(`product:${p.slug}`);
+                added.add(`produkt:${p.slug}`);
             }
 
             // Category suggestions (dedupe by category name)
             if (
                 p.merchant_product_third_category &&
-                !added.has(`category:${p.merchant_product_third_category}`)
+                !added.has(`kategorie:${p.merchant_product_third_category}`)
             ) {
                 suggestions.push({
                     id: p.merchant_product_third_category,
                     name: p.merchant_product_third_category,
-                    type: 'Category',
+                    type: 'Kategorie',
                 });
-                added.add(`category:${p.merchant_product_third_category}`);
+                added.add(`kategorie:${p.merchant_product_third_category}`);
             }
 
             // Brand suggestions (dedupe by brand name)
-            if (p.brand_name && !added.has(`brand:${p.brand_name}`)) {
+            if (p.brand_name && !added.has(`marke:${p.brand_name}`)) {
                 suggestions.push({
                     id: p.brand_name,
                     name: p.brand_name,
-                    type: 'Brand',
+                    type: 'Marke',
                 });
-                added.add(`brand:${p.brand_name}`);
+                added.add(`marke:${p.brand_name}`);
             }
         });
 
