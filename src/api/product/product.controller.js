@@ -175,7 +175,7 @@ export const productLists = async (req, res) => {
             minPrices: Number(priceData.min) || 0,
             maxPrices: Number(priceData.max) || 0,
             filterGroups: {
-                categories: result.categories || [],
+                kategories: result.categories || [],
                 brands: result.brands || [],
                 widths: result.widths || [],
                 heights: result.heights || [],
@@ -638,9 +638,7 @@ export const GetFilterTyres = async (req, res) => {
             noise,
         } = req.query;
 
-        // Build query only from provided, truthy values
         const baseQuery = {};
-        if (category) baseQuery.merchant_product_third_category = category;
         if (width) baseQuery.width = width;
         if (height) baseQuery.height = height;
         if (diameter) baseQuery.diameter = diameter;
@@ -649,35 +647,30 @@ export const GetFilterTyres = async (req, res) => {
         if (fuelClass) baseQuery.fuel_class = fuelClass;
         if (noise) baseQuery.noise_class = noise;
 
-        const buildFacetPipeline = (fieldToGroup) => {
-            const matchStage = { ...baseQuery };
-            // exclude the field itself so its options aren't self-filtered
-            delete matchStage[fieldToGroup];
-
-            return [
-                { $match: matchStage },
-                { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: '' } } },
-                {
-                    $group: {
-                        _id: `$${fieldToGroup}`,
-                        count: { $sum: 1 },
-                    },
+        const buildFacetPipeline = (fieldToGroup) => [
+            { $match: baseQuery },
+            { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: '' } } },
+            {
+                $group: {
+                    _id: `$${fieldToGroup}`,
+                    count: { $sum: 1 },
                 },
-                {
-                    $project: {
-                        name: '$_id',
-                        count: 1,
-                        _id: 0,
-                    },
+            },
+            {
+                $project: {
+                    name: '$_id',
+                    count: 1,
+                    _id: 0,
                 },
-                { $sort: { count: -1, name: 1 } }, // stable ordering
-            ];
-        };
+            },
+            { $sort: { count: -1, name: 1 } },
+        ];
 
         const result = await Product.aggregate([
             {
                 $facet: {
                     categories: buildFacetPipeline('merchant_product_third_category'),
+                    brands: buildFacetPipeline('brand'),
                     widths: buildFacetPipeline('width'),
                     heights: buildFacetPipeline('height'),
                     diameters: buildFacetPipeline('diameter'),
@@ -689,35 +682,94 @@ export const GetFilterTyres = async (req, res) => {
             },
         ]);
 
-        const {
-            categories = [],
-            widths = [],
-            heights = [],
-            diameters = [],
-            lastIndexes = [],
-            wetGrips = [],
-            fuelClasses = [],
-            noises = [],
-        } = result[0] || {};
+        const data = result[0] || {};
+        const { categories, ...rest } = data;
+        const response = { kategories: categories || [], ...rest };
 
-        return res.status(200).json({
-            categories,
-            widths,
-            heights,
-            diameters,
-            lastIndexes,
-            wetGrips,
-            fuelClasses,
-            noises,
-        });
+        return res.status(200).json(response);
     } catch (err) {
         console.error('Error in GetFilterTyres:', err);
-        return res.status(500).json({ message: 'Server error', error: err.message });
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
 
 
+
 // controller
+// search suggestion for brand, categrory, product
+// export const getSearchSuggestions = async (req, res) => {
+//     const { query } = req.query;
+
+//     if (!query || typeof query !== 'string') {
+//         return res.status(400).json({ message: 'Invalid query parameter' });
+//     }
+
+//     try {
+//         const searchRegex = { $regex: query, $options: 'i' };
+
+//         const products = await Product.find({
+//             $or: [
+//                 { product_name: searchRegex },
+//                 { merchant_product_third_category: searchRegex },
+//                 { brand_name: searchRegex },
+//             ],
+//         })
+//             .limit(20)
+//             // ✅ include slug so the UI can route by slug
+//             .select('slug product_name merchant_product_third_category brand_name product_image')
+//             .lean();
+
+//         const suggestions = [];
+//         const added = new Set();
+
+//         products.forEach((p) => {
+//             // Product suggestions (dedupe by slug)
+//             if (p.slug && p.product_name && !added.has(`produkt:${p.slug}`)) {
+//                 suggestions.push({
+//                     slug: p.slug,
+//                     name: p.product_name,
+//                     type: 'Produkt',
+//                     image: p.product_image || null,
+//                 });
+//                 added.add(`produkt:${p.slug}`);
+//             }
+
+//             // Category suggestions (dedupe by category name)
+//             if (
+//                 p.merchant_product_third_category &&
+//                 !added.has(`kategorie:${p.merchant_product_third_category}`)
+//             ) {
+//                 suggestions.push({
+//                     id: p.merchant_product_third_category,
+//                     name: p.merchant_product_third_category,
+//                     type: 'Kategorie',
+//                 });
+//                 added.add(`kategorie:${p.merchant_product_third_category}`);
+//             }
+
+//             // Brand suggestions (dedupe by brand name)
+//             if (p.brand_name && !added.has(`marke:${p.brand_name}`)) {
+//                 suggestions.push({
+//                     id: p.brand_name,
+//                     name: p.brand_name,
+//                     type: 'Marke',
+//                 });
+//                 added.add(`marke:${p.brand_name}`);
+//             }
+//         });
+
+//         res.status(200).json(suggestions);
+//     } catch (error) {
+//         console.error('Error fetching search suggestions:', error);
+//         res
+//             .status(500)
+//             .json({ message: 'Server error', error: error.message });
+//     }
+// };
+
+  
+
+// POST /api/products/upload-csv
 export const getSearchSuggestions = async (req, res) => {
     const { query } = req.query;
 
@@ -728,69 +780,41 @@ export const getSearchSuggestions = async (req, res) => {
     try {
         const searchRegex = { $regex: query, $options: 'i' };
 
-        const products = await Product.find({
-            $or: [
-                { product_name: searchRegex },
-                { merchant_product_third_category: searchRegex },
-                { brand_name: searchRegex },
-            ],
-        })
+        // ✅ Only search product_name and optionally brand_name
+        const products = await Product.find(
+            {
+                $or: [
+                    { product_name: searchRegex },
+                    { brand_name: searchRegex }, // optional: allows "Michelin" to match products too
+                ],
+            },
+            {
+                slug: 1,
+                product_name: 1,
+                brand_name: 1,
+                product_image: 1,
+                _id: 0,
+            }
+        )
             .limit(20)
-            // ✅ include slug so the UI can route by slug
-            .select('slug product_name merchant_product_third_category brand_name product_image')
             .lean();
 
-        const suggestions = [];
-        const added = new Set();
-
-        products.forEach((p) => {
-            // Product suggestions (dedupe by slug)
-            if (p.slug && p.product_name && !added.has(`produkt:${p.slug}`)) {
-                suggestions.push({
-                    slug: p.slug,
-                    name: p.product_name,
-                    type: 'Produkt',
-                    image: p.product_image || null,
-                });
-                added.add(`produkt:${p.slug}`);
-            }
-
-            // Category suggestions (dedupe by category name)
-            if (
-                p.merchant_product_third_category &&
-                !added.has(`kategorie:${p.merchant_product_third_category}`)
-            ) {
-                suggestions.push({
-                    id: p.merchant_product_third_category,
-                    name: p.merchant_product_third_category,
-                    type: 'Kategorie',
-                });
-                added.add(`kategorie:${p.merchant_product_third_category}`);
-            }
-
-            // Brand suggestions (dedupe by brand name)
-            if (p.brand_name && !added.has(`marke:${p.brand_name}`)) {
-                suggestions.push({
-                    id: p.brand_name,
-                    name: p.brand_name,
-                    type: 'Marke',
-                });
-                added.add(`marke:${p.brand_name}`);
-            }
-        });
+        // ✅ Return only product suggestions
+        const suggestions = products.map((p) => ({
+            slug: p.slug,
+            name: p.product_name,
+            brand: p.brand_name || null,
+            image: p.product_image || null,
+            type: 'Produkt',
+        }));
 
         res.status(200).json(suggestions);
     } catch (error) {
         console.error('Error fetching search suggestions:', error);
-        res
-            .status(500)
-            .json({ message: 'Server error', error: error.message });
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
 
-  
-
-// POST /api/products/upload-csv
 export const uploadCsv = async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
     try {
