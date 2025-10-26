@@ -18,6 +18,7 @@ import favoriteRoutes from './api/favorite/favorite.routes.js';
 import wishlistRoutes from './api/wishlist/wishlist.route.js';
 import blogRoutes from './api/blogs/blog.routes.js';
 import affiliateRouter from './api/utils/affiliate.js'; 
+import newsletterRoutes from './api/newsletter/newsletter.route.js';
 
 dotenv.config();
 connectDB();
@@ -79,6 +80,7 @@ app.use('/api/faq', faqRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/wishlist', wishlistRoutes)
 app.use('/api/blogs', blogRoutes);
+app.use('/api/newsletter', newsletterRoutes);
 app.use('/images', express.static(path.join(process.cwd(), 'src', 'images')));
 
 
