@@ -38,9 +38,10 @@ export const productLists = async (req, res) => {
 
         // Build base filters
         const filters = {
-            ...(req.query.category && {
-                merchant_product_third_category: { $in: toArray(req.query.category) },
+            ...(req.query.kategorie && {
+                merchant_product_third_category: { $in: toArray(req.query.kategorie) },
             }),
+
             ...(req.query.brand && {
                 brand_name: { $in: toArray(req.query.brand) },
             }),
@@ -628,7 +629,7 @@ export const getFeaturedProducts = async (req, res) => {
 export const GetFilterTyres = async (req, res) => {
     try {
         const {
-            category,
+            kategorie, // frontend sends ?kategorie=Winter
             width,
             height,
             diameter,
@@ -636,9 +637,18 @@ export const GetFilterTyres = async (req, res) => {
             wetGrip,
             fuelClass,
             noise,
+            brand,
         } = req.query;
 
         const baseQuery = {};
+
+        if (kategorie) {
+            baseQuery.merchant_product_third_category = Array.isArray(kategorie)
+                ? { $in: kategorie }
+                : kategorie;
+        }
+
+        if (brand) baseQuery.brand = brand;
         if (width) baseQuery.width = width;
         if (height) baseQuery.height = height;
         if (diameter) baseQuery.diameter = diameter;
@@ -651,25 +661,16 @@ export const GetFilterTyres = async (req, res) => {
             { $match: baseQuery },
             { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: '' } } },
             {
-                $group: {
-                    _id: `$${fieldToGroup}`,
-                    count: { $sum: 1 },
-                },
+                $group: { _id: `$${fieldToGroup}`, count: { $sum: 1 } },
             },
-            {
-                $project: {
-                    name: '$_id',
-                    count: 1,
-                    _id: 0,
-                },
-            },
+            { $project: { name: '$_id', count: 1, _id: 0 } },
             { $sort: { count: -1, name: 1 } },
         ];
 
         const result = await Product.aggregate([
             {
                 $facet: {
-                    categories: buildFacetPipeline('merchant_product_third_category'),
+                    kategories: buildFacetPipeline('merchant_product_third_category'),
                     brands: buildFacetPipeline('brand'),
                     widths: buildFacetPipeline('width'),
                     heights: buildFacetPipeline('height'),
@@ -683,8 +684,17 @@ export const GetFilterTyres = async (req, res) => {
         ]);
 
         const data = result[0] || {};
-        const { categories, ...rest } = data;
-        const response = { kategories: categories || [], ...rest };
+        const response = {
+            kategories: data.kategories || [],
+            brands: data.brands || [],
+            widths: data.widths || [],
+            heights: data.heights || [],
+            diameters: data.diameters || [],
+            lastIndexes: data.lastIndexes || [],
+            wetGrips: data.wetGrips || [],
+            fuelClasses: data.fuelClasses || [],
+            noises: data.noises || [],
+        };
 
         return res.status(200).json(response);
     } catch (err) {
@@ -692,6 +702,7 @@ export const GetFilterTyres = async (req, res) => {
         res.status(500).json({ message: 'Server error', error: err.message });
     }
 };
+
 
 
 
