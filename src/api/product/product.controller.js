@@ -717,14 +717,16 @@ export const GetFilterTyres = async (req, res) => {
             brand,
         } = req.query;
 
-        const baseQuery = {};
-
+        // 1️⃣ CATEGORY-ONLY filter for dropdown lists
+        const categoryOnlyQuery = {};
         if (kategorie) {
-            baseQuery.merchant_product_third_category = Array.isArray(kategorie)
+            categoryOnlyQuery.merchant_product_third_category = Array.isArray(kategorie)
                 ? { $in: kategorie }
                 : kategorie;
         }
 
+        // 2️⃣ FULL filter for product results only
+        const baseQuery = { ...categoryOnlyQuery };
         if (brand) baseQuery.brand = brand;
         if (width) baseQuery.width = width;
         if (height) baseQuery.height = height;
@@ -734,45 +736,40 @@ export const GetFilterTyres = async (req, res) => {
         if (fuelClass) baseQuery.fuel_class = fuelClass;
         if (noise) baseQuery.noise_class = noise;
 
-        // 🔥 Category facet MUST NOT use baseQuery filters
-        const categoryFacetPipeline = [
-            { $match: { merchant_product_third_category: { $exists: true, $ne: '' } } },
-            {
-                $group: { _id: "$merchant_product_third_category", count: { $sum: 1 } }
-            },
+        // 🔥 DROPDOWN LISTS: must ONLY filter by category
+        const facetPipeline = (field) => [
+            { $match: categoryOnlyQuery }, // 👈 ONLY category affects dropdowns
+            { $match: { [field]: { $exists: true, $ne: "" } } },
+            { $group: { _id: `$${field}`, count: { $sum: 1 } } },
             { $project: { name: "$_id", count: 1, _id: 0 } },
             { $sort: { name: 1 } }
-        ];
-
-        // 🔥 All other facets use baseQuery (same functionality as before)
-        const buildFacetPipeline = (fieldToGroup) => [
-            { $match: baseQuery },
-            { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: "" } } },
-            { $group: { _id: `$${fieldToGroup}`, count: { $sum: 1 } } },
-            { $project: { name: "$_id", count: 1, _id: 0 } },
-            { $sort: { count: -1, name: 1 } }
         ];
 
         const result = await Product.aggregate([
             {
                 $facet: {
-                    kategories: categoryFacetPipeline,      // 👈 always full list
-                    brands: buildFacetPipeline("brand"),
-                    widths: buildFacetPipeline("width"),
-                    heights: buildFacetPipeline("height"),
-                    diameters: buildFacetPipeline("diameter"),
-                    lastIndexes: buildFacetPipeline("lastIndex"),
-                    wetGrips: buildFacetPipeline("wet_grip"),
-                    fuelClasses: buildFacetPipeline("fuel_class"),
-                    noises: buildFacetPipeline("noise_class"),
-                },
-            },
+                    kategories: [
+                        { $match: { merchant_product_third_category: { $exists: true, $ne: "" } } },
+                        { $group: { _id: "$merchant_product_third_category", count: { $sum: 1 } } },
+                        { $project: { name: "$_id", count: 1, _id: 0 } },
+                        { $sort: { name: 1 } }
+                    ],
+                    brands: facetPipeline("brand"),
+                    widths: facetPipeline("width"),
+                    heights: facetPipeline("height"),
+                    diameters: facetPipeline("diameter"),
+                    lastIndexes: facetPipeline("lastIndex"),
+                    wetGrips: facetPipeline("wet_grip"),
+                    fuelClasses: facetPipeline("fuel_class"),
+                    noises: facetPipeline("noise_class"),
+                }
+            }
         ]);
 
         const data = result[0] || {};
 
-        return res.status(200).json({
-            kategories: data.kategories || [],   // full list always
+        return res.json({
+            kategories: data.kategories || [],
             brands: data.brands || [],
             widths: data.widths || [],
             heights: data.heights || [],
