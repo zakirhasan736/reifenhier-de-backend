@@ -626,10 +626,87 @@ export const getFeaturedProducts = async (req, res) => {
 };
 
 
+// export const GetFilterTyres = async (req, res) => {
+//     try {
+//         const {
+//             kategorie, // frontend sends ?kategorie=Winter
+//             width,
+//             height,
+//             diameter,
+//             lastIndex,
+//             wetGrip,
+//             fuelClass,
+//             noise,
+//             brand,
+//         } = req.query;
+
+//         const baseQuery = {};
+
+//         if (kategorie) {
+//             baseQuery.merchant_product_third_category = Array.isArray(kategorie)
+//                 ? { $in: kategorie }
+//                 : kategorie;
+//         }
+
+//         if (brand) baseQuery.brand = brand;
+//         if (width) baseQuery.width = width;
+//         if (height) baseQuery.height = height;
+//         if (diameter) baseQuery.diameter = diameter;
+//         if (lastIndex) baseQuery.lastIndex = lastIndex;
+//         if (wetGrip) baseQuery.wet_grip = wetGrip;
+//         if (fuelClass) baseQuery.fuel_class = fuelClass;
+//         if (noise) baseQuery.noise_class = noise;
+
+//         const buildFacetPipeline = (fieldToGroup) => [
+//             { $match: baseQuery },
+//             { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: '' } } },
+//             {
+//                 $group: { _id: `$${fieldToGroup}`, count: { $sum: 1 } },
+//             },
+//             { $project: { name: '$_id', count: 1, _id: 0 } },
+//             { $sort: { count: -1, name: 1 } },
+//         ];
+
+//         const result = await Product.aggregate([
+//             {
+//                 $facet: {
+//                     kategories: buildFacetPipeline('merchant_product_third_category'),
+//                     brands: buildFacetPipeline('brand'),
+//                     widths: buildFacetPipeline('width'),
+//                     heights: buildFacetPipeline('height'),
+//                     diameters: buildFacetPipeline('diameter'),
+//                     lastIndexes: buildFacetPipeline('lastIndex'),
+//                     wetGrips: buildFacetPipeline('wet_grip'),
+//                     fuelClasses: buildFacetPipeline('fuel_class'),
+//                     noises: buildFacetPipeline('noise_class'),
+//                 },
+//             },
+//         ]);
+
+//         const data = result[0] || {};
+//         const response = {
+//             kategories: data.kategories || [],
+//             brands: data.brands || [],
+//             widths: data.widths || [],
+//             heights: data.heights || [],
+//             diameters: data.diameters || [],
+//             lastIndexes: data.lastIndexes || [],
+//             wetGrips: data.wetGrips || [],
+//             fuelClasses: data.fuelClasses || [],
+//             noises: data.noises || [],
+//         };
+
+//         return res.status(200).json(response);
+//     } catch (err) {
+//         console.error('Error in GetFilterTyres:', err);
+//         res.status(500).json({ message: 'Server error', error: err.message });
+//     }
+// };
+
 export const GetFilterTyres = async (req, res) => {
     try {
         const {
-            kategorie, // frontend sends ?kategorie=Winter
+            kategorie,
             width,
             height,
             diameter,
@@ -657,35 +734,45 @@ export const GetFilterTyres = async (req, res) => {
         if (fuelClass) baseQuery.fuel_class = fuelClass;
         if (noise) baseQuery.noise_class = noise;
 
+        // 🔥 Category facet MUST NOT use baseQuery filters
+        const categoryFacetPipeline = [
+            { $match: { merchant_product_third_category: { $exists: true, $ne: '' } } },
+            {
+                $group: { _id: "$merchant_product_third_category", count: { $sum: 1 } }
+            },
+            { $project: { name: "$_id", count: 1, _id: 0 } },
+            { $sort: { name: 1 } }
+        ];
+
+        // 🔥 All other facets use baseQuery (same functionality as before)
         const buildFacetPipeline = (fieldToGroup) => [
             { $match: baseQuery },
-            { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: '' } } },
-            {
-                $group: { _id: `$${fieldToGroup}`, count: { $sum: 1 } },
-            },
-            { $project: { name: '$_id', count: 1, _id: 0 } },
-            { $sort: { count: -1, name: 1 } },
+            { $match: { [fieldToGroup]: { $exists: true, $ne: null, $ne: "" } } },
+            { $group: { _id: `$${fieldToGroup}`, count: { $sum: 1 } } },
+            { $project: { name: "$_id", count: 1, _id: 0 } },
+            { $sort: { count: -1, name: 1 } }
         ];
 
         const result = await Product.aggregate([
             {
                 $facet: {
-                    kategories: buildFacetPipeline('merchant_product_third_category'),
-                    brands: buildFacetPipeline('brand'),
-                    widths: buildFacetPipeline('width'),
-                    heights: buildFacetPipeline('height'),
-                    diameters: buildFacetPipeline('diameter'),
-                    lastIndexes: buildFacetPipeline('lastIndex'),
-                    wetGrips: buildFacetPipeline('wet_grip'),
-                    fuelClasses: buildFacetPipeline('fuel_class'),
-                    noises: buildFacetPipeline('noise_class'),
+                    kategories: categoryFacetPipeline,      // 👈 always full list
+                    brands: buildFacetPipeline("brand"),
+                    widths: buildFacetPipeline("width"),
+                    heights: buildFacetPipeline("height"),
+                    diameters: buildFacetPipeline("diameter"),
+                    lastIndexes: buildFacetPipeline("lastIndex"),
+                    wetGrips: buildFacetPipeline("wet_grip"),
+                    fuelClasses: buildFacetPipeline("fuel_class"),
+                    noises: buildFacetPipeline("noise_class"),
                 },
             },
         ]);
 
         const data = result[0] || {};
-        const response = {
-            kategories: data.kategories || [],
+
+        return res.status(200).json({
+            kategories: data.kategories || [],   // full list always
             brands: data.brands || [],
             widths: data.widths || [],
             heights: data.heights || [],
@@ -694,15 +781,13 @@ export const GetFilterTyres = async (req, res) => {
             wetGrips: data.wetGrips || [],
             fuelClasses: data.fuelClasses || [],
             noises: data.noises || [],
-        };
+        });
 
-        return res.status(200).json(response);
     } catch (err) {
-        console.error('Error in GetFilterTyres:', err);
-        res.status(500).json({ message: 'Server error', error: err.message });
+        console.error("Error in GetFilterTyres:", err);
+        res.status(500).json({ message: "Server error", error: err.message });
     }
 };
-
 
 
 
