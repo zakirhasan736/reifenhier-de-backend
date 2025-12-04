@@ -492,6 +492,171 @@ export const getLatestProducts = async (req, res) => {
 };
 
 
+// export const updateFeaturedSettings = async (req, res) => {
+//     try {
+//         const { category, section_title, mode, selected_products } = req.body;
+
+//         if (!category || !section_title) {
+//             return res
+//                 .status(400)
+//                 .json({ message: "Category and title are required" });
+//         }
+
+//         if (!["default", "custom"].includes(mode)) {
+//             return res.status(400).json({ message: "Invalid mode" });
+//         }
+
+//         if (mode === "custom" && selected_products?.length > 10) {
+//             return res.status(400).json({
+//                 message: "You can select maximum 10 products",
+//             });
+//         }
+
+//         const updateData = {
+//             category,
+//             section_title,
+//             mode,
+//             selected_products: mode === "custom" ? selected_products : [],
+//         };
+
+//         const updated = await FeaturedSettings.findOneAndUpdate(
+//             {},
+//             updateData,
+//             { upsert: true, new: true }
+//         );
+
+//         return res
+//             .status(200)
+//             .json({ message: "Settings updated", settings: updated });
+//     } catch (err) {
+//         return res.status(500).json({
+//             message: "Failed to update settings",
+//             error: err.message,
+//         });
+//     }
+// };
+
+
+// export const getFeaturedProducts = async (req, res) => {
+//     try {
+//         const settings = await FeaturedSettings.findOne();
+
+//         const {
+//             category = "Winterreifen",
+//             max_brands = 10,
+//             competitors_per_product = 3,
+//             mode = "default",
+//             selected_products = [],
+//         } = settings || {};
+
+//         // ⭐ CUSTOM MODE → Return ONLY selected products
+//         if (mode === "custom" && selected_products.length > 0) {
+//             const products = await Product.find({
+//                 _id: { $in: selected_products }
+//             })
+//                 .select(
+//                     "brand_logo slug product_image fuel_class wet_grip noise_class dimensions product_name brand_name search_price cheapest_offer expensive_offer offers"
+//                 )
+//                 .lean();
+
+//             return res.status(200).json({
+//                 title: settings?.section_title || "Our recommendation",
+//                 category,
+//                 products,
+//                 mode,
+//             });
+//         }
+
+//         // ⭐ DEFAULT MODE (AUTO TOP FILTER)
+//         const result = await Product.aggregate([
+//             {
+//                 $match: {
+//                     merchant_product_third_category: {
+//                         $regex: new RegExp(`^${category}$`, "i"),
+//                     },
+//                 },
+//             },
+//             { $sort: { average_rating: -1, createdAt: -1 } },
+//             { $limit: 1000 },
+//             {
+//                 $group: {
+//                     _id: "$brand_name",
+//                     product: { $first: "$$ROOT" },
+//                 },
+//             },
+//             { $limit: max_brands },
+//             { $replaceRoot: { newRoot: "$product" } },
+//             {
+//                 $project: {
+//                     brand_logo: 1,
+//                     slug: 1,
+//                     fuel_class: 1,
+//                     product_image: 1,
+//                     wet_grip: 1,
+//                     noise_class: 1,
+//                     dimensions: 1,
+//                     product_name: 1,
+//                     brand_name: 1,
+//                     search_price: 1,
+//                     cheapest_offer: 1,
+//                     expensive_offer: 1,
+//                     offers: 1,
+//                 },
+//             },
+//         ]);
+
+//         return res.status(200).json({
+//             title: settings?.section_title || "Our recommendation",
+//             category,
+//             products: result,
+//             mode,
+//         });
+//     } catch (err) {
+//         console.error("⚠️ Featured product fetch error:", err);
+//         return res.status(500).json({
+//             message: "Server error",
+//             error: err.message,
+//         });
+//     }
+// };
+
+
+// // GET ALL PRODUCTS FOR SELECTED SESSION + SEARCH
+// export const getProductsBySession = async (req, res) => {
+//     try {
+//         const { category, search = "" } = req.query;
+
+//         if (!category) {
+//             return res.status(400).json({ message: "Category is required" });
+//         }
+
+//         const filter = {
+//             merchant_product_third_category: {
+//                 $regex: new RegExp(`^${category}$`, "i"),
+//             },
+//         };
+
+//         if (search) {
+//             filter.product_name = { $regex: search, $options: "i" };
+//         }
+
+//         const products = await Product.find(filter)
+//             .select(
+//                 "product_name product_image search_price offers in_stock createdAt merchant_product_third_category"
+//             )
+//             .sort({ createdAt: -1 })
+//             .limit(500)
+//             .lean();
+
+//         return res.status(200).json(products);
+//     } catch (err) {
+//         return res.status(500).json({
+//             message: "Failed to load products",
+//             error: err.message,
+//         });
+//     }
+// };
+
 export const updateFeaturedSettings = async (req, res) => {
     try {
         const { category, section_title } = req.body;
@@ -624,8 +789,6 @@ export const getFeaturedProducts = async (req, res) => {
         });
     }
 };
-
-
 // export const GetFilterTyres = async (req, res) => {
 //     try {
 //         const {

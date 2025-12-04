@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import {
      productLists,
+      // getProductsBySession,
       uploadCsv, getProductDetails, getBrandSummary, updateFeaturedSettings, getLatestProducts, getFeaturedProducts, GetFilterTyres, getSearchSuggestions } from "./product.controller.js";
 import { getImportProgress } from "./importAWINCsv.js";
 const upload = multer({ dest: "uploads/" });
@@ -29,6 +30,8 @@ router.get("/latest-products", getLatestProducts);
 // New: Latest winter products
 router.get("/sessions-products", getFeaturedProducts);
 router.put('/sessions-settings', updateFeaturedSettings);
+// LIST ALL PRODUCTS BY CATEGORY (for admin selection)
+// router.get("/products-by-session", getProductsBySession);
 
 // New: Filter tyres
 router.get("/filter-tyres", GetFilterTyres);

@@ -19,6 +19,7 @@ import wishlistRoutes from './api/wishlist/wishlist.route.js';
 import blogRoutes from './api/blogs/blog.routes.js';
 import affiliateRouter from './api/utils/affiliate.js'; 
 import newsletterRoutes from './api/newsletter/newsletter.route.js';
+import analyticsRoutes from './api/analytics/analytics.routes.js';
 
 dotenv.config();
 connectDB();
@@ -72,6 +73,7 @@ app.use(morgan('dev'));
 
 // Routes
 app.use('/', affiliateRouter);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
