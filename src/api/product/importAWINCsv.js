@@ -555,12 +555,6 @@ export async function importAWINCsv(filePath) {
                     `✅ Import Summary: New: ${importStatus.imported}, Updated: ${importStatus.updated}, Skipped: ${importStatus.skipped}, Deleted: ${importStatus.deleted}`
                 );
 
-                // trigger image downloader if needed
-                // if (cloudinaryUploadQueue.size > 0) {
-                //     spawn("node", ["src/api/utils/uploadProductImages.js"], { stdio: "inherit" });
-                // }
-
-              
 
                 await ImportMeta.findOneAndUpdate(
                     { source: "AWIN" },

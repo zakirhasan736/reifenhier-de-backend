@@ -57,5 +57,15 @@ export const VENDOR_PAYMENT_ICONS = {
         "/images/icons/payments/amazon-pay.svg",
         "/images/icons/payments/sepa.png",
     ],
+    "Vergölst DE": [
+        "/images/icons/payments/Visa.png",
+        "/images/icons/payments/Mastercard.png",
+        "/images/icons/payments/paypal.svg",
+    ],
+    "Vergoelst DE": [
+        "/images/icons/payments/Visa.png",
+        "/images/icons/payments/Mastercard.png",
+        "/images/icons/payments/paypal.svg",
+    ],
 };
   
