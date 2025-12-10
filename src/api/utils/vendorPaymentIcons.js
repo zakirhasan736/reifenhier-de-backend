@@ -67,5 +67,10 @@ export const VENDOR_PAYMENT_ICONS = {
         "/images/icons/payments/Mastercard.png",
         "/images/icons/payments/paypal.svg",
     ],
+    "vergoelst.de": [
+        "/images/icons/payments/Visa.png",
+        "/images/icons/payments/Mastercard.png",
+        "/images/icons/payments/paypal.svg",
+    ],
 };
   
