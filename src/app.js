@@ -73,7 +73,7 @@ app.use(morgan('dev'));
 
 // Routes
 app.use('/', affiliateRouter);
-app.use('/api/analytics', analyticsRoutes);
+app.use('/api/v1', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);

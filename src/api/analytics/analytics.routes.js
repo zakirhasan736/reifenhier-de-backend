@@ -15,7 +15,7 @@ import {
 const router = express.Router();
 
 // Logging endpoint
-router.post("/log-click", logClick);
+router.post("/p", logClick);
 
 // Rankings
 router.get("/vendors", getTopVendors);
