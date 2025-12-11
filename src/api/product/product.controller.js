@@ -1023,53 +1023,106 @@ export const GetFilterTyres = async (req, res) => {
 //     }
 // };
 
-  
-
-// POST /api/products/upload-csv
 export const getSearchSuggestions = async (req, res) => {
     const { query } = req.query;
 
-    if (!query || typeof query !== 'string') {
-        return res.status(400).json({ message: 'Invalid query parameter' });
+    if (!query || typeof query !== "string") {
+        return res.status(400).json({ message: "Invalid query parameter" });
     }
 
     try {
-        const searchRegex = { $regex: query, $options: 'i' };
+        const searchRegex = { $regex: query, $options: "i" };
 
-        // ✅ Only search product_name and optionally brand_name
         const products = await Product.find(
             {
                 $or: [
-                    { product_name: searchRegex },
-                    { brand_name: searchRegex }, // optional: allows "Michelin" to match products too
-                ],
+                    { product_name: searchRegex },    // search by title
+                    { brand_name: searchRegex },      // search by brand
+
+                    // ⭐ NEW: search brand + product combined (UI title)
+                    {
+                        $expr: {
+                            $regexMatch: {
+                                input: { $concat: ["$brand_name", " ", "$product_name"] },
+                                regex: query,
+                                options: "i"
+                            }
+                        }
+                    }
+                ]
             },
             {
                 slug: 1,
                 product_name: 1,
                 brand_name: 1,
-                product_image: 1,
-                _id: 0,
+                product_image: 1
             }
         )
             .limit(20)
             .lean();
 
-        // ✅ Return only product suggestions
-        const suggestions = products.map((p) => ({
+        const suggestions = products.map(p => ({
             slug: p.slug,
             name: p.product_name,
-            brand: p.brand_name || null,
-            image: p.product_image || null,
-            type: 'Produkt',
+            brand: p.brand_name,
+            image: p.product_image,
+            type: "Produkt",
         }));
 
         res.status(200).json(suggestions);
+
     } catch (error) {
-        console.error('Error fetching search suggestions:', error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        console.error("Error fetching search suggestions:", error);
+        res.status(500).json({ message: "Server error", error: error.message });
     }
 };
+
+
+// POST /api/products/upload-csv
+// export const getSearchSuggestions = async (req, res) => {
+//     const { query } = req.query;
+
+//     if (!query || typeof query !== 'string') {
+//         return res.status(400).json({ message: 'Invalid query parameter' });
+//     }
+
+//     try {
+//         const searchRegex = { $regex: query, $options: 'i' };
+
+//         // ✅ Only search product_name and optionally brand_name
+//         const products = await Product.find(
+//             {
+//                 $or: [
+//                     { product_name: searchRegex },
+//                     { brand_name: searchRegex }, // optional: allows "Michelin" to match products too
+//                 ],
+//             },
+//             {
+//                 slug: 1,
+//                 product_name: 1,
+//                 brand_name: 1,
+//                 product_image: 1,
+//                 _id: 0,
+//             }
+//         )
+//             .limit(20)
+//             .lean();
+
+//         // ✅ Return only product suggestions
+//         const suggestions = products.map((p) => ({
+//             slug: p.slug,
+//             name: p.product_name,
+//             brand: p.brand_name || null,
+//             image: p.product_image || null,
+//             type: 'Produkt',
+//         }));
+
+//         res.status(200).json(suggestions);
+//     } catch (error) {
+//         console.error('Error fetching search suggestions:', error);
+//         res.status(500).json({ message: 'Server error', error: error.message });
+//     }
+// };
 
 export const uploadCsv = async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
