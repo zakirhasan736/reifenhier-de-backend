@@ -16,20 +16,6 @@ router.get("/out/:cloaked", async (req, res) => {
     }
 
     try {
-        // Log click if productId is provided
-        if (productId) {
-            const product = await Product.findById(productId).lean();
-            if (product) {
-                await Click.create({
-                    product_id: product._id,
-                    product_name: product.product_name,
-                    vendor: product.vendor || product.cheapest_vendor?.vendor || "",
-                    vendor_id: product.vendor_id || product.cheapest_vendor?.vendor_id || "",
-                    uuid,
-                    source: from
-                });
-            }
-        }
 
         // Fetch affiliate page from server (not client)
         const response = await fetch(decodedUrl, {

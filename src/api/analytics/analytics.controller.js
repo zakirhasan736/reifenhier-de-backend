@@ -2,9 +2,16 @@
 import Click from "../../models/click.js";
 import geoip from "geoip-lite";
 
-/**
- * 📌 Track a click (product, vendor, brand, device, country, city, etc.)
- */
+/* 🔐 IP anonymizer (GDPR) */
+function anonymizeIp(ip) {
+    if (!ip || ip === "unknown") return "unknown";
+    if (ip.includes(".")) {
+        return ip.split(".").slice(0, 3).join(".") + ".0";
+    }
+    return ip;
+}
+
+/* 📌 CLICK LOGGER */
 export const logClick = async (req, res) => {
     try {
         const {
@@ -14,39 +21,35 @@ export const logClick = async (req, res) => {
             vendor,
             vendorId,
             uuid = "guest",
-            source = "unknown"
+            source = "unknown",
         } = req.body;
 
-        // -----------------------------
-        // 🔥 1. Get REAL IP Address
-        // -----------------------------
-        const ip =
-            req.headers["cf-connecting-ip"] ||      // Cloudflare real IP
-            req.headers["x-real-ip"] ||             // NGINX real IP
-            req.headers["x-forwarded-for"]?.split(",")[0] || // Proxy chain
+        /* 1️⃣ REAL IP */
+        const rawIp =
+            req.headers["cf-connecting-ip"] ||
+            req.headers["x-real-ip"] ||
+            req.headers["x-forwarded-for"]?.split(",")[0] ||
             req.socket.remoteAddress ||
             "unknown";
 
-        // -----------------------------
-        // 🔥 2. Get Country
-        // -----------------------------
-        const country =
-            req.headers["cf-ipcountry"] ||          // Cloudflare GEO
-            req.headers["x-vercel-ip-country"] ||   // Vercel GEO
-            req.headers["x-country"] ||
-            "unknown";
+        const ip = anonymizeIp(rawIp);
 
-        // -----------------------------
-        // 🔥 3. Optional City Header
-        // -----------------------------
-        const city =
+        /* 2️⃣ GEO (server-side only) */
+        let country =
+            req.headers["cf-ipcountry"] ||
+            req.headers["x-vercel-ip-country"];
+
+        let city =
             req.headers["cf-ipcity"] ||
-            req.headers["x-vercel-ip-city"] ||
-            null;
+            req.headers["x-vercel-ip-city"];
 
-        // -----------------------------
-        // 🔥 4. Device Detection
-        // -----------------------------
+        if (!country && rawIp !== "unknown") {
+            const geo = geoip.lookup(rawIp);
+            country = geo?.country || "unknown";
+            city = geo?.city || null;
+        }
+
+        /* 3️⃣ DEVICE */
         const ua = req.headers["user-agent"] || "unknown";
 
         const device_type = /mobile/i.test(ua)
@@ -75,9 +78,19 @@ export const logClick = async (req, res) => {
                         ? "iOS"
                         : "Unknown";
 
-        // -----------------------------
-        // 🔥 5. Save Click
-        // -----------------------------
+        /* 4️⃣ DEDUPLICATION (3s window) */
+        const recentClick = await Click.findOne({
+            uuid,
+            product_id: productId,
+            vendor_id: vendorId,
+            clicked_at: { $gte: new Date(Date.now() - 3000) },
+        });
+
+        if (recentClick) {
+            return res.json({ success: true, deduped: true });
+        }
+
+        /* 5️⃣ SAVE */
         await Click.create({
             product_id: productId || null,
             product_name: productName || "",
@@ -92,15 +105,16 @@ export const logClick = async (req, res) => {
             user_agent: ua,
             device_type,
             browser,
-            os
+            os,
         });
 
-        return res.json({ success: true });
+        res.json({ success: true });
     } catch (err) {
-        console.error("Click logging failed:", err);
-        return res.status(500).json({ error: "failed_to_log_click" });
+        console.error("Click log failed:", err);
+        res.status(500).json({ error: "click_log_failed" });
     }
 };
+
 
 /**
  * Helper to generate date ranges

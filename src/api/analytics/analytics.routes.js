@@ -14,8 +14,8 @@ import {
 
 const router = express.Router();
 
-// Logging endpoint
-router.post("/p", logClick);
+/* sendBeacon uses text/plain */
+router.post("/p", express.json({ type: ["application/json", "text/plain"] }), logClick);
 
 // Rankings
 router.get("/vendors", getTopVendors);

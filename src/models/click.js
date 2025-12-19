@@ -47,6 +47,10 @@ clickSchema.index({ vendor: 1, clicked_at: -1 });
 clickSchema.index({ brand_name: 1 });
 clickSchema.index({ country: 1 });
 clickSchema.index({ device_type: 1 });
-
+/* 🧹 GDPR cleanup — auto-delete after 90 days */
+clickSchema.index(
+    { clicked_at: 1 },
+    { expireAfterSeconds: 60 * 60 * 24 * 90 }
+);
 export default mongoose.models.Click ||
     mongoose.model("Click", clickSchema, "clicks");
