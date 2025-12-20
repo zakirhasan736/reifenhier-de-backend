@@ -1,5 +1,6 @@
 // controllers/analytics.controller.js
 import Click from "../../models/click.js";
+import PageView from "../../models/pageView.js";
 import geoip from "geoip-lite";
 
 /* 🔐 IP anonymizer (GDPR) */
@@ -10,6 +11,99 @@ function anonymizeIp(ip) {
     }
     return ip;
 }
+export const logPageView = async (req, res) => {
+    try {
+        const {
+            uuid = "guest",
+            page = "/",
+            source = "unknown",
+        } = req.body;
+
+        /* 1️⃣ IP */
+        const rawIp =
+            req.headers["cf-connecting-ip"] ||
+            req.headers["x-real-ip"] ||
+            req.headers["x-forwarded-for"]?.split(",")[0] ||
+            req.socket.remoteAddress ||
+            "unknown";
+
+        const ip = anonymizeIp(rawIp);
+
+        /* 2️⃣ GEO */
+        let country =
+            req.headers["cf-ipcountry"] ||
+            req.headers["x-vercel-ip-country"];
+
+        let city =
+            req.headers["cf-ipcity"] ||
+            req.headers["x-vercel-ip-city"];
+
+        if (!country && rawIp !== "unknown") {
+            const geo = geoip.lookup(rawIp);
+            country = geo?.country || "unknown";
+            city = geo?.city || null;
+        }
+
+        /* 3️⃣ DEVICE */
+        const ua = req.headers["user-agent"] || "unknown";
+
+        const device_type = /mobile/i.test(ua)
+            ? "mobile"
+            : /tablet/i.test(ua)
+                ? "tablet"
+                : "desktop";
+
+        const browser = /chrome/i.test(ua)
+            ? "Chrome"
+            : /safari/i.test(ua)
+                ? "Safari"
+                : /firefox/i.test(ua)
+                    ? "Firefox"
+                    : /edge/i.test(ua)
+                        ? "Edge"
+                        : "Unknown";
+
+        const os = /windows/i.test(ua)
+            ? "Windows"
+            : /mac os/i.test(ua)
+                ? "macOS"
+                : /android/i.test(ua)
+                    ? "Android"
+                    : /iphone|ipad/i.test(ua)
+                        ? "iOS"
+                        : "Unknown";
+
+        /* 4️⃣ DEDUPLICATE (1 page view per user per page per 30 min) */
+        const recentView = await PageView.findOne({
+            uuid,
+            page,
+            viewed_at: { $gte: new Date(Date.now() - 30 * 60 * 1000) },
+        });
+
+        if (recentView) {
+            return res.json({ success: true, deduped: true });
+        }
+
+        /* 5️⃣ SAVE */
+        await PageView.create({
+            uuid,
+            page,
+            source,
+            ip,
+            country,
+            city,
+            device_type,
+            browser,
+            os,
+            user_agent: ua,
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error("PageView failed:", err);
+        res.status(500).json({ error: "pageview_failed" });
+    }
+};
 
 /* 📌 CLICK LOGGER */
 export const logClick = async (req, res) => {

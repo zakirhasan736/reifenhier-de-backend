@@ -9,6 +9,7 @@ import {
     getMonthlyClicks,
     getDeviceAnalytics,
     getCountryAnalytics,
+    logPageView,
     logClick
 } from "./analytics.controller.js";
 
@@ -16,7 +17,12 @@ const router = express.Router();
 
 /* sendBeacon uses text/plain */
 router.post("/p", express.json({ type: ["application/json", "text/plain"] }), logClick);
-
+/* sendBeacon compatibility */
+router.post(
+    "/pv",
+    express.json({ type: ["application/json", "text/plain"] }),
+    logPageView
+);
 // Rankings
 router.get("/vendors", getTopVendors);
 router.get("/products", getTopProducts);
