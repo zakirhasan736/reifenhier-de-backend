@@ -121,13 +121,13 @@ import mongoose from "mongoose";
 import ImportMeta from "../../models/ImportMeta.js";
 import Product from "../../models/product.js";
 import { startCsvImportAsync } from "../product/importAWINCsv.js";
-import { mergeOldReifen24Offers } from "../product/mergeReifen24Offers.js";
+// import { mergeOldReifen24Offers } from "../product/mergeReifen24Offers.js";
 import { spawn } from "child_process";
 
 dotenv.config();
 
 const AWIN_CSV_URL = process.env.AWIN_CSV_URL;
-const OLD_REIFEN24_CSV_URL = process.env.OLD_REIFEN24_CSV_URL;
+// const OLD_REIFEN24_CSV_URL = process.env.OLD_REIFEN24_CSV_URL;
 const MONGO_URI = process.env.MONGODB_URI;
 
 const RETRY_DELAY_MS = 2 * 60 * 1000; // retry delay on failure
@@ -263,13 +263,13 @@ async function attemptCsvImport() {
 `);
 
         /* STEP 2: Merge Reifen24 */
-        if (OLD_REIFEN24_CSV_URL) {
-            console.log("🚀 [STEP 2] Merging Reifen24 offers...");
-            await mergeOldReifen24Offers(OLD_REIFEN24_CSV_URL);
-            console.log("✅ [STEP 2] Reifen24 merge complete.");
-        } else {
-            console.log("⚠️ [STEP 2] OLD_REIFEN24_CSV_URL not set, skipping merge.");
-        }
+        // if (OLD_REIFEN24_CSV_URL) {
+        //     console.log("🚀 [STEP 2] Merging Reifen24 offers...");
+        //     await mergeOldReifen24Offers(OLD_REIFEN24_CSV_URL);
+        //     console.log("✅ [STEP 2] Reifen24 merge complete.");
+        // } else {
+        //     console.log("⚠️ [STEP 2] OLD_REIFEN24_CSV_URL not set, skipping merge.");
+        // }
 
         /* STEP 3: Scraper */
         console.log("🕷 [STEP 3] Running missing Reifen data scraper...");
