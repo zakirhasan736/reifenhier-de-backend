@@ -580,7 +580,7 @@ export async function importAWINCsv(filePath) {
 export function getVendorsFromLastImport(req, res) {
     res.json({ vendors: importStatus.vendors });
 }
-
+ 
 export async function getVendorsFromDatabase(req, res) {
     const products = await LiveProduct.find({}, { offers: 1 }).lean();
     const vendors = new Set();
