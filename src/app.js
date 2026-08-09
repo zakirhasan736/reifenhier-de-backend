@@ -34,6 +34,7 @@ const allowedOrigins = [
     'https://www.reifexa.de',
     'https://reifexa.de',
     'https://admin.reifexa.de',
+    'https://wp.reifencheck.de',
 ].filter(Boolean);
 
 // Deduplicate while preserving order
