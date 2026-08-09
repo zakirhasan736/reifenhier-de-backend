@@ -33,6 +33,7 @@ const allowedOrigins = [
     process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3001',
     'https://www.reifexa.de',
     'https://reifexa.de',
+    'https://admin.reifexa.de',
 ].filter(Boolean);
 
 // Deduplicate while preserving order
