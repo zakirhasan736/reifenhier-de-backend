@@ -1,10 +1,11 @@
 // src/app.js
+// Load env before any other local imports that may read process.env
+import './loadEnv.js'
 // import "./api/utils/cron-job.js";
 import express from 'express';
 import cors from 'cors';
 import path from "path";
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import { connectDB } from './config/db.js';
 
@@ -21,7 +22,6 @@ import affiliateRouter from './api/utils/affiliate.js';
 import newsletterRoutes from './api/newsletter/newsletter.route.js';
 import analyticsRoutes from './api/analytics/analytics.routes.js';
 
-dotenv.config();
 connectDB();
 const app = express();
 

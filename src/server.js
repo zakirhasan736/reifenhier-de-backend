@@ -1,8 +1,9 @@
-// src/server.js
-import app from './app.js';
+// Must load env before importing app (ESM import order)
+import './loadEnv.js'
+import app from './app.js'
 
-const PORT = process.env.PORT || 6000;
+const PORT = Number(process.env.PORT) || 8001
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`🚀 Server running on http://127.0.0.1:${PORT}`)
+})
