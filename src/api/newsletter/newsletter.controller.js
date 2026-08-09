@@ -22,7 +22,7 @@ export const subscribeNewsletter = async (req, res) => {
             });
         }
 
-        const frontendUrl = process.env.FRONTEND_URL || "https://reifencheck.de";
+        const frontendUrl = process.env.FRONTEND_URL || "https://www.reifexa.de";
         const token = generateUnsubscribeToken(email);
 
         const existing = await NewsletterSubscriber.findOne({ email });
@@ -259,7 +259,7 @@ export const sendCampaign = async (req, res) => {
             });
         }
 
-        const frontendUrl = process.env.FRONTEND_URL || "https://reifencheck.de";
+        const frontendUrl = process.env.FRONTEND_URL || "https://www.reifexa.de";
 
         const emails = subscribers.map((s) => s.email);
         const messages = emails.map((email) => {

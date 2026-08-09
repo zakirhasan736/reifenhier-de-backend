@@ -31,40 +31,32 @@ const app = express();
 const allowedOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:3000',
     process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3001',
+    'https://www.reifexa.de',
+    'https://reifexa.de',
 ].filter(Boolean);
+
+// Deduplicate while preserving order
+const uniqueOrigins = [...new Set(allowedOrigins)];
+
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) {
-            return callback(null, true);
-        } else {
-            return callback(
-                new Error(
-                    `CORS: Origin ${origin} not allowed. Allowed origins: ${allowedOrigins.join(", ")}`
-                )
-            );
-        }
-    },
-    origin: function (origin, callback) {
-        console.log('🌐 Incoming Origin:', origin); // <-- Add this line
+        console.log('🌐 Incoming Origin:', origin);
 
+        // Allow requests with no origin (mobile apps, curl, server-to-server)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) {
+        if (uniqueOrigins.includes(origin)) {
             return callback(null, true);
-        } else {
-            return callback(
-                new Error(
-                    `CORS: Origin ${origin} not allowed. Allowed origins: ${allowedOrigins.join(", ")}`
-                )
-            );
         }
+        return callback(
+            new Error(
+                `CORS: Origin ${origin} not allowed. Allowed origins: ${uniqueOrigins.join(', ')}`
+            )
+        );
     },
-
     credentials: true,
-    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
 }));
-console.log('✅ Allowed CORS Origins:', allowedOrigins);
+console.log('✅ Allowed CORS Origins:', uniqueOrigins);
 
 // --- CORS CONFIG END --- //
 app.use(cookieParser());
