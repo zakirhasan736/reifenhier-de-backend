@@ -15,9 +15,12 @@ export const logPageView = async (req, res) => {
     try {
         const {
             uuid = "guest",
-            page = "/",
+            page: pageBody,
+            path,
             source = "unknown",
         } = req.body;
+
+        const page = pageBody || path || "/";
 
         /* 1️⃣ IP */
         const rawIp =
@@ -116,6 +119,8 @@ export const logClick = async (req, res) => {
             vendorId,
             uuid = "guest",
             source = "unknown",
+            instruction = "",
+            behavior = "click",
         } = req.body;
 
         /* 1️⃣ REAL IP */
@@ -193,6 +198,9 @@ export const logClick = async (req, res) => {
             vendor_id: vendorId || "",
             uuid,
             source,
+            instruction: instruction || source,
+            behavior,
+            referrer: req.headers.referer || req.headers.referrer || "",
             ip,
             country,
             city,
@@ -206,6 +214,97 @@ export const logClick = async (req, res) => {
     } catch (err) {
         console.error("Click log failed:", err);
         res.status(500).json({ error: "click_log_failed" });
+    }
+};
+
+/* 📌 BEHAVIOR / INSTRUCTION LOGGER */
+export const logBehavior = async (req, res) => {
+    try {
+        const {
+            uuid = "guest",
+            type = "other",
+            page = "/",
+            path,
+            action = "",
+            instruction = "",
+            productId,
+            vendor = "",
+            vendorId = "",
+            meta,
+        } = req.body;
+
+        const rawIp =
+            req.headers["cf-connecting-ip"] ||
+            req.headers["x-real-ip"] ||
+            req.headers["x-forwarded-for"]?.split(",")[0] ||
+            req.socket.remoteAddress ||
+            "unknown";
+
+        const ip = anonymizeIp(rawIp);
+
+        let country =
+            req.headers["cf-ipcountry"] ||
+            req.headers["x-vercel-ip-country"];
+        let city =
+            req.headers["cf-ipcity"] ||
+            req.headers["x-vercel-ip-city"];
+
+        if (!country && rawIp !== "unknown") {
+            const geo = geoip.lookup(rawIp);
+            country = geo?.country || "unknown";
+            city = geo?.city || null;
+        }
+
+        const ua = req.headers["user-agent"] || "unknown";
+        const device_type = /mobile/i.test(ua)
+            ? "mobile"
+            : /tablet/i.test(ua)
+                ? "tablet"
+                : "desktop";
+        const browser = /chrome/i.test(ua)
+            ? "Chrome"
+            : /safari/i.test(ua)
+                ? "Safari"
+                : /firefox/i.test(ua)
+                    ? "Firefox"
+                    : /edge/i.test(ua)
+                        ? "Edge"
+                        : "Unknown";
+        const os = /windows/i.test(ua)
+            ? "Windows"
+            : /mac os/i.test(ua)
+                ? "macOS"
+                : /android/i.test(ua)
+                    ? "Android"
+                    : /iphone|ipad/i.test(ua)
+                        ? "iOS"
+                        : "Unknown";
+
+        const Behavior = (await import("../../models/behavior.js")).default;
+
+        await Behavior.create({
+            uuid,
+            type,
+            page: page || path || "/",
+            action,
+            instruction,
+            product_id: productId || null,
+            vendor,
+            vendor_id: vendorId,
+            meta: meta || {},
+            ip,
+            country,
+            city,
+            user_agent: ua,
+            device_type,
+            browser,
+            os,
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error("Behavior log failed:", err);
+        res.status(500).json({ error: "behavior_log_failed" });
     }
 };
 

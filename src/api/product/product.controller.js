@@ -194,6 +194,47 @@ export const productLists = async (req, res) => {
     }
 };
 
+/**
+ * Lightweight sitemap feed — slug + updatedAt only (no facets/offers).
+ * Supports 50k+ catalogs via page/limit chunks.
+ */
+export const productSitemapSlugs = async (req, res) => {
+    try {
+        const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+        const limit = Math.min(
+            50000,
+            Math.max(1, parseInt(String(req.query.limit || '10000'), 10) || 10000)
+        );
+        const skip = (page - 1) * limit;
+
+        const filter = { slug: { $exists: true, $nin: [null, ''] } };
+
+        const [total, products] = await Promise.all([
+            Product.countDocuments(filter),
+            Product.find(filter)
+                .sort({ _id: 1 })
+                .skip(skip)
+                .limit(limit)
+                .select('slug updatedAt')
+                .lean(),
+        ]);
+
+        return res.status(200).json({
+            total,
+            page,
+            limit,
+            pages: Math.max(1, Math.ceil(total / limit)),
+            products: products.map((p) => ({
+                slug: p.slug,
+                updatedAt: p.updatedAt || null,
+            })),
+        });
+    } catch (err) {
+        console.error('Error in productSitemapSlugs:', err);
+        return res.status(500).json({ message: 'Server error' });
+    }
+};
+
 // ========================================
 const relatedProductsCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL

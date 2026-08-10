@@ -10,19 +10,20 @@ import {
     getDeviceAnalytics,
     getCountryAnalytics,
     logPageView,
-    logClick
+    logClick,
+    logBehavior,
 } from "./analytics.controller.js";
 
 const router = express.Router();
 
+const beaconJson = express.json({ type: ["application/json", "text/plain"] });
+
 /* sendBeacon uses text/plain */
-router.post("/p", express.json({ type: ["application/json", "text/plain"] }), logClick);
-/* sendBeacon compatibility */
-router.post(
-    "/pv",
-    express.json({ type: ["application/json", "text/plain"] }),
-    logPageView
-);
+router.post("/p", beaconJson, logClick);
+router.post("/pv", beaconJson, logPageView);
+/* Neutral behavior/events endpoint (adblock-safer than /track) */
+router.post("/e", beaconJson, logBehavior);
+
 // Rankings
 router.get("/vendors", getTopVendors);
 router.get("/products", getTopProducts);

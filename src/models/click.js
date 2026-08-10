@@ -20,6 +20,11 @@ const clickSchema = new mongoose.Schema(
         uuid: { type: String, index: true },
         source: String,               // e.g., “produktseite”, “vergleich”, “listing”
 
+        // CTA / behavior context
+        instruction: String,          // button label / CTA name e.g. "Zum Angebot"
+        behavior: String,             // e.g. vendor_exit | compare | filter
+        referrer: String,
+
         // 🌍 GEO information
         country: String,              // e.g., "DE"
         city: String,
@@ -47,6 +52,8 @@ clickSchema.index({ vendor: 1, clicked_at: -1 });
 clickSchema.index({ brand_name: 1 });
 clickSchema.index({ country: 1 });
 clickSchema.index({ device_type: 1 });
+clickSchema.index({ behavior: 1, clicked_at: -1 });
+clickSchema.index({ instruction: 1 });
 /* 🧹 GDPR cleanup — auto-delete after 90 days */
 clickSchema.index(
     { clicked_at: 1 },
