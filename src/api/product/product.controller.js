@@ -134,27 +134,17 @@ export const productLists = async (req, res) => {
             Product.countDocuments(filters),
             Product.aggregate([{ $facet: facetStage }]),
         ]);
-                // Now use the reusable function per product:
+                // Keep money fields numeric for clients/SEO (format in the UI).
                 const products = await Promise.all(productsRaw.map(async (product) => ({
                     ...product,
-                    cheapest_offer: typeof product.cheapest_offer === "number"
-                        ? `${product.cheapest_offer.toFixed(2).replace(".", ",")}`
-                        : product.cheapest_offer || "0,00",
-                    expensive_offer: typeof product.expensive_offer === "number"
-                        ? `${product.expensive_offer.toFixed(2).replace(".", ",")}`
-                        : product.expensive_offer || "0,00",
-                    search_price: typeof product.search_price === "number"
-                        ? `${product.search_price.toFixed(2).replace(".", ",")}`
-                        : product.search_price || "0,00",
-                    main_price: typeof product.main_price === "number"
-                        ? `${product.main_price.toFixed(2).replace(".", ",")}`
-                        : product.main_price || "0,00",
+                    cheapest_offer: Number(product.cheapest_offer) || 0,
+                    expensive_offer: Number(product.expensive_offer) || 0,
+                    search_price: Number(product.search_price) || 0,
+                    main_price: Number(product.main_price) || 0,
                     offers: Array.isArray(product.offers)
                         ? product.offers.map(o => ({
                             ...o,
-                            price: typeof o.price === "number"
-                                ? o.price.toFixed(2).replace(".", ",")
-                                : "0,00",
+                            price: Number(o.price) || 0,
                         }))
                         : [],
                     savings_percent: product.savings_percent || "0%",
@@ -553,24 +543,16 @@ export const getLatestProducts = async (req, res) => {
         if (!result.length) {
             return res.status(404).json({ message: "No products found." });
         }
-        // Format prices for frontend
+        // Keep money fields numeric — format in the UI.
         const formatted = result.map((p) => ({
             ...p,
-            cheapest_offer: typeof p.cheapest_offer === "number"
-                ? p.cheapest_offer.toFixed(2).replace(".", ",")
-                : "0,00",
-            expensive_offer: typeof p.expensive_offer === "number"
-                ? p.expensive_offer.toFixed(2).replace(".", ",")
-                : "0,00",
-            search_price: typeof p.search_price === "number"
-                ? p.search_price.toFixed(2).replace(".", ",")
-                : "0,00",
+            cheapest_offer: Number(p.cheapest_offer) || 0,
+            expensive_offer: Number(p.expensive_offer) || 0,
+            search_price: Number(p.search_price) || 0,
             offers: Array.isArray(p.offers)
                 ? p.offers.map(o => ({
                     ...o,
-                    price: typeof o.price === "number"
-                        ? o.price.toFixed(2).replace(".", ",")
-                        : "0,00",
+                    price: Number(o.price) || 0,
                 }))
                 : []
         }));
@@ -850,24 +832,16 @@ export const getFeaturedProducts = async (req, res) => {
             return res.status(404).json({ message: "No featured products found." });
         }
 
-        // Format prices for frontend
+        // Keep money fields numeric — format in the UI.
         const formatted = result.map((p) => ({
             ...p,
-            cheapest_offer: typeof p.cheapest_offer === "number"
-                ? p.cheapest_offer.toFixed(2).replace(".", ",")
-                : "0,00",
-            expensive_offer: typeof p.expensive_offer === "number"
-                ? p.expensive_offer.toFixed(2).replace(".", ",")
-                : "0,00",
-            search_price: typeof p.search_price === "number"
-                ? p.search_price.toFixed(2).replace(".", ",")
-                : "0,00",
+            cheapest_offer: Number(p.cheapest_offer) || 0,
+            expensive_offer: Number(p.expensive_offer) || 0,
+            search_price: Number(p.search_price) || 0,
             offers: Array.isArray(p.offers)
                 ? p.offers.map(o => ({
                     ...o,
-                    price: typeof o.price === "number"
-                        ? o.price.toFixed(2).replace(".", ",")
-                        : "0,00",
+                    price: Number(o.price) || 0,
                 }))
                 : []
         }));
