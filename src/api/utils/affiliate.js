@@ -1,5 +1,6 @@
 import express from 'express'
 import affiliateCloak from './affiliateCloak.js'
+import { appendAwinClickRef, buildAwinClickRef } from './awinTracking.js'
 import Product from '../../models/product.js'
 import Click from '../../models/click.js'
 import ProductInterest from '../../models/productInterest.js'
@@ -217,7 +218,9 @@ async function handleVendorExit(req, res, token) {
   }
 
   setExitHeaders(res)
-  return res.redirect(302, decodedUrl)
+  const clickRef = buildAwinClickRef({ productId, uuid, from })
+  const exitUrl = appendAwinClickRef(decodedUrl, clickRef)
+  return res.redirect(302, exitUrl)
 }
 
 /** Primary adblock-safe GET exit */

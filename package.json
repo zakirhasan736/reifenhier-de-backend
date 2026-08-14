@@ -8,6 +8,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "cron": "node src/start-cron.mjs",
+    "import:awin": "node scripts/run-awin-import-once.mjs --force",
+    "repair:offers": "node scripts/repair-product-offers.mjs",
+    "repair:vendors": "node scripts/repair-vendor-assets.mjs",
     "build": "echo \"✔ No build step required for plain Node.js\"",
     "test": "echo \"No tests specified\" && exit 0"
   },

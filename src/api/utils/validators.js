@@ -22,8 +22,8 @@
  * Returns true if vendor is accepted (currently always true)
  */
 export function isValidVendor(row) {
-    // Accept all vendors; add exclusions if needed
-    return true;
+    // Must have AWIN affiliate tracking — otherwise no commission
+    return hasAwinAffiliateLink(row);
 }
 
 /**

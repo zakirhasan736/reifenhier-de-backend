@@ -10,9 +10,11 @@ const upload = multer({ dest: "uploads/" });
 
 const router = express.Router();
 
+// Legacy/compatibility routes used by the frontend and older callers.
+router.get("/", productLists);
 router.get("/product-lists", productLists);
 router.get("/sitemap-slugs", productSitemapSlugs);
-
+router.get("/product-details/:slug", getProductDetails);
 
 router.post("/upload-csv", upload.single("file"), uploadCsv);
 
@@ -32,6 +34,9 @@ router.get("/latest-products", getLatestProducts);
 // New: Latest winter products
 router.get("/sessions-products", getFeaturedProducts);
 router.put('/sessions-settings', updateFeaturedSettings);
+
+// Keep this last so it does not swallow concrete routes like /brand-summary, /latest-products, /sessions-products.
+router.get("/:slug", getProductDetails);
 // LIST ALL PRODUCTS BY CATEGORY (for admin selection)
 // router.get("/products-by-session", getProductsBySession);
 

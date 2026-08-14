@@ -321,6 +321,61 @@ export const getProductDetails = async (req, res) => {
             }));
         }
 
+        const { width, height, diameter } = parseTyreDimensions(product.dimensions || '');
+        const { lastIndex, speedIndex } = extractIndexesFromProductName(product.product_name || '');
+
+        // Same size + brand, other load/speed indexes (e.g. 99V vs 91H)
+        const productWidth = String(product.width || width || '');
+        const productHeight = String(product.height || height || '');
+        const productDiameter = String(product.diameter || diameter || '');
+        const currentIndexKey = `${product.lastIndex || lastIndex || ''}${product.speedIndex || speedIndex || ''}`;
+        let indexVariants = [];
+
+        if (product.brand_name && productWidth && productHeight && productDiameter) {
+            const variants = await Product.find(
+                {
+                    _id: { $ne: product._id },
+                    brand_name: product.brand_name,
+                    width: productWidth,
+                    height: productHeight,
+                    diameter: productDiameter,
+                },
+                {
+                    slug: 1,
+                    lastIndex: 1,
+                    speedIndex: 1,
+                    cheapest_offer: 1,
+                    search_price: 1,
+                    product_name: 1,
+                }
+            )
+                .sort({ cheapest_offer: 1 })
+                .limit(24)
+                .lean();
+
+            const seen = new Map();
+            for (const v of variants) {
+                const key = `${v.lastIndex || ''}${v.speedIndex || ''}`;
+                if (!key.trim() || key === currentIndexKey) continue;
+                const price = Number(v.cheapest_offer || v.search_price || 0);
+                const prev = seen.get(key);
+                if (!prev || (price > 0 && price < prev.price)) {
+                    seen.set(key, {
+                        slug: v.slug,
+                        lastIndex: v.lastIndex || '',
+                        speedIndex: v.speedIndex || '',
+                        price,
+                        label: key,
+                        product_name: v.product_name,
+                        cheapest_offer: formatPrice(price),
+                    });
+                }
+            }
+            indexVariants = Array.from(seen.values())
+                .sort((a, b) => a.price - b.price)
+                .slice(0, 10);
+        }
+
         // Try cache first
         const cacheKey = `related:${product._id}`;
         const cached = getCachedRelatedProducts?.(cacheKey);
@@ -334,12 +389,12 @@ export const getProductDetails = async (req, res) => {
                     ? p.offers.map(o => ({ ...o, price: formatPrice(o.price) }))
                     : []
             }));
-            return res.status(200).json({ product: formattedProduct, relatedProducts: formattedRelated });
+            return res.status(200).json({
+                product: formattedProduct,
+                relatedProducts: formattedRelated,
+                indexVariants,
+            });
         }
-
-        // Parse related filter
-        const { width, height, diameter } = parseTyreDimensions(product.dimensions || '');
-        const { lastIndex, speedIndex } = extractIndexesFromProductName(product.product_name || '');
 
         const baseMatch = {
             merchant_product_third_category: product.merchant_product_third_category,
@@ -390,7 +445,8 @@ export const getProductDetails = async (req, res) => {
 
         return res.status(200).json({
             product: formattedProduct,
-            relatedProducts
+            relatedProducts,
+            indexVariants,
         });
     } catch (err) {
         console.error('Error fetching product details:', err);

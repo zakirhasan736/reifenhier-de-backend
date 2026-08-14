@@ -48,7 +48,18 @@ export const loginAdmin = async (req, res) => {
         if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
         const token = signJwt({ id: admin._id, email: admin.email, role: 'admin' });
-        res.status(200).json({ token, admin: { id: admin._id, email: admin.email, name: admin.name } });
+        res.status(200).json({
+            token,
+            admin: {
+                _id: admin._id,
+                id: admin._id,
+                email: admin.email,
+                firstName: admin.firstName,
+                lastName: admin.lastName,
+                name: `${admin.firstName} ${admin.lastName}`.trim(),
+                role: 'admin',
+            },
+        });
     } catch (err) {
         res.status(500).json({ error: err.message || 'Login failed' });
     }
