@@ -35,16 +35,13 @@ router.get("/latest-products", getLatestProducts);
 router.get("/sessions-products", getFeaturedProducts);
 router.put('/sessions-settings', updateFeaturedSettings);
 
-// Keep this last so it does not swallow concrete routes like /brand-summary, /latest-products, /sessions-products.
-router.get("/:slug", getProductDetails);
-// LIST ALL PRODUCTS BY CATEGORY (for admin selection)
-// router.get("/products-by-session", getProductsBySession);
-
-// New: Filter tyres
+// Concrete paths must be registered before /:slug, otherwise Express
+// treats "filter-tyres" / "suggestions" as product slugs (404).
 router.get("/filter-tyres", GetFilterTyres);
-
-// New: Search suggestions
 router.get("/suggestions", getSearchSuggestions);
+
+// Keep this last so it does not swallow concrete routes.
+router.get("/:slug", getProductDetails);
 
 
 export default router;
