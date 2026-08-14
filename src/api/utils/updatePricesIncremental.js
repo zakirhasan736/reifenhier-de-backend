@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import axios from "axios";
 import csv from "csv-parser";
+import { detectCsvSeparator, csvSeparatorFromFeedUrl } from "./awinCsv.js";
 import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
 import affiliateCloak from "./affiliateCloak.js";
@@ -244,6 +245,9 @@ async function main() {
 
         console.log("⚡ Starting incremental price refresh...");
         const stream = await getCsvReadableStream();
+        const csvSeparator =
+            csvSeparatorFromFeedUrl(process.env.AWIN_CSV_URL || FEED_URL) ||
+            (FEED_PATH ? detectCsvSeparator(FEED_PATH) : ",");
 
         const counters = {
             rows: 0,
@@ -266,7 +270,7 @@ async function main() {
 
         await new Promise((resolve, reject) => {
             stream
-                .pipe(csv({ separator: ";" }))
+                .pipe(csv({ separator: csvSeparator }))
                 .on("data", (row) => {
                     counters.rows++;
 

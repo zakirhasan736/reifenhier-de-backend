@@ -1,0 +1,11 @@
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+dotenv.config();
+await mongoose.connect(process.env.MONGODB_URI);
+const col = mongoose.connection.db.collection('products');
+const total = await col.countDocuments();
+const withDesc = await col.countDocuments({ description: { $exists: true, $nin: [null, ''] } });
+const withShort = await col.countDocuments({ product_short_description: { $exists: true, $nin: [null, ''] } });
+const withSpec = await col.countDocuments({ specifications: { $exists: true, $nin: [null, ''] } });
+console.log({ total, withDesc, withShort, withSpec });
+await mongoose.disconnect();

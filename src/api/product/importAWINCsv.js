@@ -9,10 +9,19 @@ import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
 import affiliateCloak from "../utils/affiliateCloak.js";
-import { VENDOR_PAYMENT_ICONS } from "../utils/vendorPaymentIcons.js";
+import { getVendorPaymentIcons } from "../utils/vendorPaymentIcons.js";
 import isEqual from "lodash.isequal";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
+import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
+import { extractAwinAffiliateId, logAwinTrackingMismatch } from "../utils/awinTracking.js";
+import {
+    dedupeOffers,
+    hasAwinAffiliateLink,
+    pickDescription,
+    pickReviewFields,
+    pickTyreLabelFields,
+} from "../utils/offerUtils.js";
 
 dotenv.config();
 
@@ -259,11 +268,27 @@ export async function importAWINCsv(filePath) {
                 },
             },
             { upsert: true }
-        ).catch(console.error);
+        )
+            .then(() => {
+                const csvSeparator = detectCsvSeparator(filePath);
+                const feedMeta = parseAwinFeedMeta(process.env.AWIN_CSV_URL || "");
+                console.log(
+                    `[AWIN] Import CSV separator="${csvSeparator}" campaign cid=${feedMeta.cid || "n/a"}`
+                );
 
-        fs.createReadStream(filePath)
-            .pipe(csv({ separator: ";" }))
-            .on("data", (row) => {
+                let sampleAffiliateChecked = false;
+
+                fs.createReadStream(filePath)
+                    .pipe(csv({ separator: csvSeparator }))
+                    .on("data", (row) => {
+                        if (!sampleAffiliateChecked && row["aw_deep_link"]) {
+                            sampleAffiliateChecked = true;
+                            const affId = extractAwinAffiliateId(row["aw_deep_link"]);
+                            if (affId) {
+                                console.log(`[AWIN] Sample feed affiliate id (a=): ${affId}`);
+                                logAwinTrackingMismatch(affId);
+                            }
+                        }
                 rowCount++;
                 importStatus.progress = Math.round((rowCount / (importStatus.total || 1)) * 100);
 
@@ -302,18 +327,24 @@ export async function importAWINCsv(filePath) {
                             continue;
                         }
 
-                        let masterRow = vendorRows.find(
+                        const vendorRowsFiltered = vendorRows.filter(hasAwinAffiliateLink);
+                        if (!vendorRowsFiltered.length) {
+                            importStatus.skipped++;
+                            continue;
+                        }
+
+                        let masterRow = vendorRowsFiltered.find(
                             (r) => (r["merchant_name"] || "").trim().toLowerCase() === "reifen.com"
                         );
-                        if (!masterRow) masterRow = vendorRows[0];
+                        if (!masterRow) masterRow = vendorRowsFiltered[0];
 
-                        const vendorPrices = vendorRows
+                        const vendorPrices = vendorRowsFiltered
                             .map((r) => parseSafeNumber(r["search_price"]))
                             .filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
 
                         const maxPrice = vendorPrices.length > 0 ? Math.max(...vendorPrices) : 0;
 
-                        const offers = vendorRows.map((row) => {
+                        const offersRaw = vendorRowsFiltered.map((row) => {
                             const vendorPrice = parseSafeNumber(row["search_price"]);
                             const isValidPrice = typeof vendorPrice === "number" && !isNaN(vendorPrice) && vendorPrice > 0;
 
@@ -337,7 +368,7 @@ export async function importAWINCsv(filePath) {
                                 savings_amount: savingsAmount,
                                 savings_percent: savingsPercent,
                                 currency: row["currency"],
-                                payment_icons: VENDOR_PAYMENT_ICONS[row["merchant_name"]] || [],
+                                payment_icons: getVendorPaymentIcons(row["merchant_name"]),
                                 aw_deep_link: `/go/${row["aw_product_id"]}?from=reifendb`,
                                 original_affiliate_url: originalAffiliateUrl,
                                 affiliate_product_cloak_url: cloakUrl,
@@ -348,6 +379,14 @@ export async function importAWINCsv(filePath) {
                                 in_stock: row["in_stock"] === "1" || row["in_stock"] === 1 || row["in_stock"] === 1.0,
                             };
                         });
+
+                        const offers = dedupeOffers(offersRaw);
+                        const tyreLabels = pickTyreLabelFields(vendorRowsFiltered);
+                        const reviewFields = pickReviewFields(vendorRowsFiltered);
+                        const productDescription = pickDescription(
+                            vendorRowsFiltered,
+                            masterRow["description"] || ""
+                        );
 
                         const { width, height, diameter } = parseTyreDimensions(masterRow["dimensions"]);
                         const { speedIndex, lastIndex } = extractIndexesFromProductName(masterRow["product_name"]);
@@ -379,7 +418,7 @@ export async function importAWINCsv(filePath) {
                                 masterRow["alternate_image_two"] ||
                                 masterRow["alternate_image_three"] ||
                                 masterRow["alternate_image_four"],
-                            description: masterRow["description"],
+                            description: productDescription,
                             product_affiliate_url: masterRow["aw_deep_link"],
                             product_url: cheapestVendorOffer
                                 ? cheapestVendorOffer.aw_deep_link
@@ -431,9 +470,12 @@ export async function importAWINCsv(filePath) {
                             last_updated: masterRow["last_updated"],
                             in_stock: masterRow["in_stock"] === "1" || masterRow["in_stock"] === 1 || masterRow["in_stock"] === 1.0,
                             stock_quantity: masterRow["stock_quantity"],
-                            noise_class: masterRow["custom_1"],
-                            wet_grip: masterRow["custom_2"],
-                            fuel_class: masterRow["custom_3"],
+                            noise_class: tyreLabels.noise_class,
+                            wet_grip: tyreLabels.wet_grip,
+                            fuel_class: tyreLabels.fuel_class,
+                            average_rating: reviewFields.average_rating,
+                            review_count: reviewFields.review_count,
+                            reviews: reviewFields.reviews,
                             delivery_cost: masterRow["delivery_cost"],
                             mpn: masterRow["mpn"],
                             width,
@@ -478,12 +520,38 @@ export async function importAWINCsv(filePath) {
                         newProd.expensive_price_display = expensive_offer ? `${expensive_offer.toFixed(2).replace(".", ",")} €` : undefined;
                         newProd.savings_badge = savings_amount > 0 ? `Spare ${savings_percent}` : undefined;
                         newProd.offer_count_display = newProd.offers.length > 1 ? `${newProd.offers.length} Angebote` : "1 Angebot";
+                        newProd.total_offers = newProd.offers.length;
 
                         // ✅ Ensure slug exists for both insert and update paths
                         if (existing?.slug) {
                             newProd.slug = existing.slug; // keep existing slug for SEO stability
                         } else if (!newProd.slug) {
                             newProd.slug = buildProductSlug(`reifencheckde`, newProd.brand_name, newProd.product_name, newProd.ean);
+                        }
+
+                        if (existing) {
+                            newProd.product_image = existing.product_image;
+
+                            // Keep scraped reviews / EU label when CSV row is empty
+                            if (!(newProd.average_rating > 0) && existing.average_rating > 0) {
+                                newProd.average_rating = existing.average_rating;
+                                newProd.review_count = existing.review_count || newProd.review_count;
+                                newProd.reviews = existing.reviews || newProd.reviews;
+                            }
+                            if (!newProd.fuel_class && existing.fuel_class) {
+                                newProd.fuel_class = existing.fuel_class;
+                                newProd.wet_grip = existing.wet_grip || newProd.wet_grip;
+                                newProd.noise_class = existing.noise_class || newProd.noise_class;
+                            }
+                            if (existing.tyre_label_info && !newProd.tyre_label_info) {
+                                newProd.tyre_label_info = existing.tyre_label_info;
+                            }
+                            if (Array.isArray(existing.gallery_images) && existing.gallery_images.length) {
+                                newProd.gallery_images = existing.gallery_images;
+                            }
+                            if (!newProd.description && existing.description) {
+                                newProd.description = existing.description;
+                            }
                         }
 
                         if (!existing) {
@@ -496,9 +564,6 @@ export async function importAWINCsv(filePath) {
                                 cloudinaryUploadQueue.add(ean);
                             }
                         } else {
-                            // keep current local image path if any
-                            newProd.product_image = existing.product_image;
-
                             const updateProd = { ...newProd, product_image: existing.product_image };
                             const existingOffersSorted = sortOffersByVendorId(existing.offers);
                             const newOffersSorted = sortOffersByVendorId(newProd.offers);
@@ -572,6 +637,15 @@ export async function importAWINCsv(filePath) {
             })
             .on("error", (err) => {
                 importStatus.error = err.message;
+                ImportMeta.updateOne(
+                    { source: "AWIN" },
+                    { $set: { isRunning: false, done: false } }
+                ).catch(console.error);
+                reject(err);
+            });
+            })
+            .catch((err) => {
+                console.error("[AWIN] Failed to initialize import:", err);
                 reject(err);
             });
     });
