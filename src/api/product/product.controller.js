@@ -102,6 +102,7 @@ export const productLists = async (req, res) => {
             if (filterCopy[field]) delete filterCopy[field];
             facetStage[facetName] = [
                 { $match: filterCopy },
+                { $project: { [field]: 1 } },
                 { $group: { _id: `$${field}`, count: { $sum: 1 } } },
                 { $project: { name: '$_id', count: 1, _id: 0 } },
             ];
@@ -127,12 +128,42 @@ export const productLists = async (req, res) => {
                 .sort(sortOption)
                 .skip(skip)
                 .limit(parseInt(limit, 10))
-                .select(
-                    'brand_logo fuel_class related_cheaper slug in_stock product_image awin_image_url wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count'
-                )
+                .select({
+                    brand_logo: 1,
+                    fuel_class: 1,
+                    related_cheaper: 1,
+                    slug: 1,
+                    in_stock: 1,
+                    product_image: 1,
+                    awin_image_url: 1,
+                    wet_grip: 1,
+                    noise_class: 1,
+                    dimensions: 1,
+                    merchant_product_third_category: 1,
+                    product_url: 1,
+                    product_name: 1,
+                    brand_name: 1,
+                    search_price: 1,
+                    main_price: 1,
+                    merchant_product_category_path: 1,
+                    merchant_product_second_category: 1,
+                    cheapest_offer: 1,
+                    expensive_offer: 1,
+                    speedIndex: 1,
+                    lastIndex: 1,
+                    width: 1,
+                    height: 1,
+                    diameter: 1,
+                    ean: 1,
+                    savings_percent: 1,
+                    total_offers: 1,
+                    average_rating: 1,
+                    review_count: 1,
+                    offers: { $slice: 3 },
+                })
                 .lean(),
             Product.countDocuments(filters),
-            Product.aggregate([{ $facet: facetStage }]),
+            Product.aggregate([{ $facet: facetStage }], { allowDiskUse: true }),
         ]);
                 // Keep money fields numeric for clients/SEO (format in the UI).
                 const products = await Promise.all(productsRaw.map(async (product) => ({
@@ -227,9 +258,20 @@ export const productSitemapSlugs = async (req, res) => {
 
 // ========================================
 const relatedProductsCache = new Map();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_MAX = 300;
 
-// Cache helper
+function pruneRelatedCache() {
+    const now = Date.now();
+    for (const [key, entry] of relatedProductsCache) {
+        if (now - entry.timestamp > CACHE_TTL_MS) relatedProductsCache.delete(key);
+    }
+    while (relatedProductsCache.size > CACHE_MAX) {
+        const oldest = relatedProductsCache.keys().next().value;
+        relatedProductsCache.delete(oldest);
+    }
+}
+
 const getCachedRelatedProducts = (key) => {
     const entry = relatedProductsCache.get(key);
     if (!entry) return null;
@@ -241,7 +283,9 @@ const getCachedRelatedProducts = (key) => {
 };
 
 const setCachedRelatedProducts = (key, data) => {
+    relatedProductsCache.delete(key);
     relatedProductsCache.set(key, { data, timestamp: Date.now() });
+    pruneRelatedCache();
 };
 // --- UTIL: Price formatting ---
 function formatPrice(value) {
@@ -405,11 +449,29 @@ export const getProductDetails = async (req, res) => {
             finalMatch.$and = conditions;
         }
 
-        // Aggregation for related products using disk if needed
         const related = await Product.aggregate([
             { $match: finalMatch },
+            {
+                $project: {
+                    brand_name: 1,
+                    slug: 1,
+                    product_image: 1,
+                    awin_image_url: 1,
+                    brand_logo: 1,
+                    product_name: 1,
+                    search_price: 1,
+                    cheapest_offer: 1,
+                    expensive_offer: 1,
+                    dimensions: 1,
+                    fuel_class: 1,
+                    wet_grip: 1,
+                    noise_class: 1,
+                    createdAt: 1,
+                    offers: { $slice: ['$offers', 3] },
+                },
+            },
             { $sort: { createdAt: -1, search_price: 1 } },
-            { $limit: 5000 }, // Safety cap before grouping
+            { $limit: 80 },
             {
                 $group: {
                     _id: "$brand_name",

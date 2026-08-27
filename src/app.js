@@ -57,7 +57,9 @@ const uniqueOrigins = [...new Set(allowedOrigins)];
 
 app.use(cors({
     origin: function (origin, callback) {
-        console.log('🌐 Incoming Origin:', origin);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('🌐 Incoming Origin:', origin);
+        }
 
         // Allow requests with no origin (mobile apps, curl, server-to-server)
         if (!origin) return callback(null, true);

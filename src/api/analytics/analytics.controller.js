@@ -12,6 +12,24 @@ function anonymizeIp(ip) {
     }
     return ip;
 }
+
+function isAtlasQuotaError(err) {
+    return err?.code === 8000 || /space quota/i.test(String(err?.message || ""));
+}
+
+let quotaWarned = false;
+function logAnalyticsWriteError(label, err) {
+    if (isAtlasQuotaError(err)) {
+        if (!quotaWarned) {
+            quotaWarned = true;
+            console.error(
+                `[${label}] MongoDB Atlas storage quota exceeded — analytics writes skipped until space is freed`
+            );
+        }
+        return;
+    }
+    console.error(label, err);
+}
 export const logPageView = async (req, res) => {
     try {
         const {
@@ -104,7 +122,10 @@ export const logPageView = async (req, res) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error("PageView failed:", err);
+        logAnalyticsWriteError("PageView failed:", err);
+        if (isAtlasQuotaError(err)) {
+            return res.json({ success: true, skipped: "quota" });
+        }
         res.status(500).json({ error: "pageview_failed" });
     }
 };
@@ -213,7 +234,10 @@ export const logClick = async (req, res) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error("Click log failed:", err);
+        logAnalyticsWriteError("Click log failed:", err);
+        if (isAtlasQuotaError(err)) {
+            return res.json({ success: true, skipped: "quota" });
+        }
         res.status(500).json({ error: "click_log_failed" });
     }
 };
@@ -302,7 +326,10 @@ export const logBehavior = async (req, res) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error("Behavior log failed:", err);
+        logAnalyticsWriteError("Behavior log failed:", err);
+        if (isAtlasQuotaError(err)) {
+            return res.json({ success: true, skipped: "quota" });
+        }
         res.status(500).json({ error: "behavior_log_failed" });
     }
 };

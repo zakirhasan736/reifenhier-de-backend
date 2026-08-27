@@ -270,6 +270,9 @@ async function handleVendorExit(req, res, token) {
       awinMerchantId: extractAwinMerchantId(exitUrl) || vendorId || '',
     })
   } catch (err) {
+    if (err?.code === 8000 || /space quota/i.test(String(err?.message || ''))) {
+      return
+    }
     console.error('Click logging failed:', err)
   }
 
