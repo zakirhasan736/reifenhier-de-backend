@@ -7,7 +7,7 @@ import cors from 'cors';
 import path from "path";
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
-import { connectDB } from './config/db.js';
+import { isMongoReady } from './config/db.js';
 
 // Route imports
 import adminRoutes from './api/admin/admin.routes.js';
@@ -23,8 +23,22 @@ import newsletterRoutes from './api/newsletter/newsletter.route.js';
 import analyticsRoutes from './api/analytics/analytics.routes.js';
 import pushRoutes from './api/push/push.routes.js';
 
-connectDB();
 const app = express();
+
+app.get('/health', (_req, res) => {
+    res.json({
+        ok: true,
+        mongo: isMongoReady(),
+        uptime: process.uptime(),
+    })
+})
+app.get('/api/health', (_req, res) => {
+    res.json({
+        ok: true,
+        mongo: isMongoReady(),
+        uptime: process.uptime(),
+    })
+})
 
 // Middleware
 
@@ -50,11 +64,8 @@ app.use(cors({
         if (uniqueOrigins.includes(origin)) {
             return callback(null, true);
         }
-        return callback(
-            new Error(
-                `CORS: Origin ${origin} not allowed. Allowed origins: ${uniqueOrigins.join(', ')}`
-            )
-        );
+        console.warn(`CORS blocked origin: ${origin}`)
+        return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],

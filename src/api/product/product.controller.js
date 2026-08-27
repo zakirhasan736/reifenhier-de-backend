@@ -672,7 +672,7 @@ export const getLatestProducts = async (req, res) => {
 //                     slug: 1,
 //                     fuel_class: 1,
 //                     product_image: 1,
-                    awin_image_url: 1,
+//                     awin_image_url: 1,
 //                     wet_grip: 1,
 //                     noise_class: 1,
 //                     dimensions: 1,

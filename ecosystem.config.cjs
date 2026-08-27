@@ -1,28 +1,33 @@
-// ecosystem.config.cjs
+const path = require("path");
+
 module.exports = {
     apps: [
         {
-            name: "tyre-backend",
+            name: "reifexa-api",
+            cwd: __dirname,
             script: "src/server.js",
             interpreter: "node",
             exec_mode: "fork",
-            node_args: "--max-old-space-size=8192", // Allow 8GB heap for large operations
-            instances: 1,                           // Single instance (can scale later)
+            node_args: "--max-old-space-size=8192",
+            instances: 1,
             autorestart: true,
-            max_memory_restart: "10G",              // If memory exceeds 10GB, auto-restart
+            max_memory_restart: "10G",
+            merge_logs: true,
             env: {
                 NODE_ENV: "production",
             },
         },
         {
             name: "awin-cron",
+            cwd: __dirname,
             script: "src/start-cron.mjs",
             interpreter: "node",
             exec_mode: "fork",
-            node_args: "--max-old-space-size=8192", // Same for cron job
+            node_args: "--max-old-space-size=8192",
             instances: 1,
             autorestart: true,
             max_memory_restart: "10G",
+            merge_logs: true,
             env: {
                 NODE_ENV: "production",
             },

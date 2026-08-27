@@ -4,7 +4,11 @@ import ExcelJS from "exceljs";
 
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../utils/newsletterToken.js";
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+if (process.env.SENDGRID_API_KEY) {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+} else {
+    console.warn('[NEWSLETTER] SENDGRID_API_KEY missing — email sending disabled');
+}
 
 function toCsv(rows, fields) {
     const escape = (value) => {
