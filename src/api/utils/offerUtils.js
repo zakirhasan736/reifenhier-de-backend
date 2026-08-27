@@ -107,6 +107,27 @@ const IMAGE_FIELDS = [
   "alternate_image_four",
 ];
 
+export function pickAwinImageUrl(masterRow = {}, feedImages = []) {
+  const candidates = [
+    masterRow.aw_image_url,
+    masterRow.merchant_image_url,
+    masterRow.large_image,
+    ...(Array.isArray(feedImages) ? feedImages : []),
+    masterRow.alternate_image,
+    masterRow.aw_thumb_url,
+    masterRow.merchant_thumb_url,
+  ];
+  for (const raw of candidates) {
+    const v = String(raw || "").trim();
+    if (/^https?:\/\//i.test(v)) return v;
+  }
+  return "";
+}
+
+export function isLocalProductImagePath(value) {
+  return String(value || "").startsWith("/images/product-image/");
+}
+
 export function collectFeedImages(rows = [], masterRow = {}) {
   const urls = [];
   const seen = new Set();

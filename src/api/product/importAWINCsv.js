@@ -17,6 +17,8 @@ import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
 import { extractAwinAffiliateId, logAwinTrackingMismatch } from "../utils/awinTracking.js";
 import {
     collectFeedImages,
+    pickAwinImageUrl,
+    isLocalProductImagePath,
     dedupeOffers,
     hasAwinAffiliateLink,
     pickDescription,
@@ -392,14 +394,8 @@ export async function importAWINCsv(filePath) {
                             masterRow["description"] || ""
                         );
                         const feedImages = collectFeedImages(vendorRowsFiltered, masterRow);
-                        const primaryImage =
-                            masterRow["large_image"] ||
-                            masterRow["merchant_image_url"] ||
-                            masterRow["aw_image_url"] ||
-                            feedImages[0] ||
-                            masterRow["alternate_image"] ||
-                            masterRow["aw_thumb_url"] ||
-                            masterRow["merchant_thumb_url"];
+                        const awinImage = pickAwinImageUrl(masterRow, feedImages);
+                        const primaryImage = awinImage;
 
                         const { width, height, diameter } = parseTyreDimensions(masterRow["dimensions"]);
                         const { speedIndex, lastIndex } = extractIndexesFromProductName(masterRow["product_name"]);
@@ -423,6 +419,7 @@ export async function importAWINCsv(filePath) {
                             category_name: masterRow["category_name"],
                             category_id: masterRow["category_id"],
                             product_image: primaryImage,
+                            awin_image_url: awinImage,
                             merchant_thumb_url: masterRow["merchant_thumb_url"],
                             aw_thumb_url: masterRow["aw_thumb_url"],
                             large_image: masterRow["large_image"],
@@ -577,7 +574,13 @@ export async function importAWINCsv(filePath) {
                         }
 
                         if (existing) {
-                            newProd.product_image = existing.product_image;
+                            const feedAwin = awinImage || existing.awin_image_url || "";
+                            newProd.awin_image_url = feedAwin;
+                            if (isLocalProductImagePath(existing.product_image)) {
+                                newProd.product_image = existing.product_image;
+                            } else {
+                                newProd.product_image = feedAwin || existing.product_image;
+                            }
 
                             // Keep scraped reviews / EU label when CSV row is empty
                             if (!(newProd.average_rating > 0) && existing.average_rating > 0) {
@@ -612,18 +615,16 @@ export async function importAWINCsv(filePath) {
                                 cloudinaryUploadQueue.add(ean);
                             }
                         } else {
-                            const updateProd = { ...newProd, product_image: existing.product_image };
+                            const updateProd = { ...newProd };
                             const existingOffersSorted = sortOffersByVendorId(existing.offers);
                             const newOffersSorted = sortOffersByVendorId(newProd.offers);
                             const cleanExisting = {
                                 ...stripIgnoredFields(existing),
                                 offers: existingOffersSorted,
-                                product_image: existing.product_image,
                             };
                             const cleanNew = {
                                 ...stripIgnoredFields(updateProd),
                                 offers: newOffersSorted,
-                                product_image: existing.product_image,
                             };
 
                             if (!isEqual(cleanExisting, cleanNew)) {

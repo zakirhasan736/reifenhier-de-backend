@@ -128,7 +128,7 @@ export const productLists = async (req, res) => {
                 .skip(skip)
                 .limit(parseInt(limit, 10))
                 .select(
-                    'brand_logo fuel_class related_cheaper slug in_stock product_image wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count'
+                    'brand_logo fuel_class related_cheaper slug in_stock product_image awin_image_url wet_grip noise_class dimensions merchant_product_third_category product_url product_name brand_name search_price main_price merchant_product_category_path merchant_product_second_category cheapest_offer expensive_offer speedIndex lastIndex width height diameter ean offers savings_percent total_offers average_rating review_count'
                 )
                 .lean(),
             Product.countDocuments(filters),
@@ -513,6 +513,7 @@ export const getLatestProducts = async (req, res) => {
                     slug: 1,
                     brand_logo: 1,
                     product_image: 1,
+                    awin_image_url: 1,
                     product_name: 1,
                     in_stock: 1,
                     search_price: 1,
@@ -671,6 +672,7 @@ export const getLatestProducts = async (req, res) => {
 //                     slug: 1,
 //                     fuel_class: 1,
 //                     product_image: 1,
+                    awin_image_url: 1,
 //                     wet_grip: 1,
 //                     noise_class: 1,
 //                     dimensions: 1,
@@ -799,6 +801,7 @@ export const getFeaturedProducts = async (req, res) => {
                     slug: 1,
                     fuel_class: 1,
                     product_image: 1,
+                    awin_image_url: 1,
                     wet_grip: 1,
                     noise_class: 1,
                     dimensions: 1,
@@ -1126,7 +1129,8 @@ export const getSearchSuggestions = async (req, res) => {
                 slug: 1,
                 product_name: 1,
                 brand_name: 1,
-                product_image: 1
+                product_image: 1,
+                awin_image_url: 1,
             }
         )
             .limit(20)
@@ -1136,7 +1140,7 @@ export const getSearchSuggestions = async (req, res) => {
             slug: p.slug,
             name: p.product_name,
             brand: p.brand_name,
-            image: p.product_image,
+            image: p.product_image || p.awin_image_url,
             type: "Produkt",
         }));
 

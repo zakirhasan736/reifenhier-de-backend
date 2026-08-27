@@ -39,6 +39,7 @@ const ProductSchema = new mongoose.Schema({
   category_name: String,
   category_id: String,
   product_image: String,
+  awin_image_url: String,
   description: String,
   dimensions: String,
   colour: String,
