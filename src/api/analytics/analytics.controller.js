@@ -1,6 +1,7 @@
 // controllers/analytics.controller.js
 import Click from "../../models/click.js";
 import PageView from "../../models/pageView.js";
+import Behavior from "../../models/behavior.js";
 import geoip from "geoip-lite";
 
 /* 🔐 IP anonymizer (GDPR) */
@@ -279,8 +280,6 @@ export const logBehavior = async (req, res) => {
                     : /iphone|ipad/i.test(ua)
                         ? "iOS"
                         : "Unknown";
-
-        const Behavior = (await import("../../models/behavior.js")).default;
 
         await Behavior.create({
             uuid,

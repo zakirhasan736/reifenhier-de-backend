@@ -14,16 +14,12 @@ const pushCampaignLogSchema = new mongoose.Schema(
     body: String,
     url: String,
     meta: { type: mongoose.Schema.Types.Mixed },
-    sentAt: { type: Date, default: Date.now },
+    sentAt: { type: Date, default: Date.now, expires: 60 * 60 * 24 * 90 },
   },
   { versionKey: false }
 )
 
 pushCampaignLogSchema.index({ uuid: 1, kind: 1, sentAt: -1 })
-pushCampaignLogSchema.index(
-  { sentAt: 1 },
-  { expireAfterSeconds: 60 * 60 * 24 * 90 }
-)
 
 export default mongoose.models.PushCampaignLog ||
   mongoose.model('PushCampaignLog', pushCampaignLogSchema, 'push_campaign_logs')

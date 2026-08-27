@@ -22,21 +22,15 @@ const pageViewSchema = new mongoose.Schema(
         viewed_at: {
             type: Date,
             default: Date.now,
+            expires: 60 * 60 * 24 * 90, // GDPR: auto-delete after 90 days
         },
     },
     { versionKey: false }
 );
 
-/* Performance */
-pageViewSchema.index({ viewed_at: -1 });
+/* Performance (TTL on viewed_at also covers date sorts) */
 pageViewSchema.index({ uuid: 1, viewed_at: -1 });
 pageViewSchema.index({ page: 1 });
-
-/* GDPR cleanup — auto delete after 90 days */
-pageViewSchema.index(
-    { viewed_at: 1 },
-    { expireAfterSeconds: 60 * 60 * 24 * 90 }
-);
 
 export default mongoose.models.PageView ||
     mongoose.model("PageView", pageViewSchema, "page_views");

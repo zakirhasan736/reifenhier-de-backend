@@ -44,13 +44,13 @@ const clickSchema = new mongoose.Schema(
         clicked_at: {
             type: Date,
             default: Date.now,
+            expires: 60 * 60 * 24 * 90, // GDPR: auto-delete after 90 days
         },
     },
     { versionKey: false }
 );
 
-/** Indexes for faster analytics */
-clickSchema.index({ clicked_at: -1 });
+/** Indexes for faster analytics (TTL on clicked_at also covers date sorts) */
 clickSchema.index({ product_id: 1, clicked_at: -1 });
 clickSchema.index({ vendor: 1, clicked_at: -1 });
 clickSchema.index({ brand_name: 1 });
@@ -58,10 +58,5 @@ clickSchema.index({ country: 1 });
 clickSchema.index({ device_type: 1 });
 clickSchema.index({ behavior: 1, clicked_at: -1 });
 clickSchema.index({ instruction: 1 });
-/* 🧹 GDPR cleanup — auto-delete after 90 days */
-clickSchema.index(
-    { clicked_at: 1 },
-    { expireAfterSeconds: 60 * 60 * 24 * 90 }
-);
 export default mongoose.models.Click ||
     mongoose.model("Click", clickSchema, "clicks");

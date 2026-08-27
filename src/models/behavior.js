@@ -32,19 +32,14 @@ const behaviorSchema = new mongoose.Schema(
     created_at: {
       type: Date,
       default: Date.now,
-      index: true,
+      expires: 60 * 60 * 24 * 90, // GDPR: auto-delete after 90 days
     },
   },
   { versionKey: false }
 )
 
-behaviorSchema.index({ created_at: -1 })
 behaviorSchema.index({ uuid: 1, created_at: -1 })
 behaviorSchema.index({ type: 1, created_at: -1 })
-behaviorSchema.index(
-  { created_at: 1 },
-  { expireAfterSeconds: 60 * 60 * 24 * 90 }
-)
 
 export default mongoose.models.Behavior ||
   mongoose.model('Behavior', behaviorSchema, 'behaviors')

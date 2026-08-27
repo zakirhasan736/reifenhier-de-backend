@@ -1,11 +1,22 @@
 import NewsletterSubscriber from "../../models/NewsletterSubscriber.js";
 import sgMail from "@sendgrid/mail";
-import { Parser } from "json2csv";
 import ExcelJS from "exceljs";
 
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../utils/newsletterToken.js";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+function toCsv(rows, fields) {
+    const escape = (value) => {
+        if (value == null) return "";
+        const s = value instanceof Date ? value.toISOString() : String(value);
+        if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+    };
+    const header = fields.join(",");
+    const body = rows.map((row) => fields.map((field) => escape(row[field])).join(",")).join("\n");
+    return `${header}\n${body}`;
+}
 
 /**
  * @desc Subscribe to newsletter
@@ -218,8 +229,7 @@ export const exportSubscribers = async (req, res) => {
                 "subscribedAt",
                 "unsubscribedAt",
             ];
-            const parser = new Parser({ fields });
-            const csv = parser.parse(subscribers);
+            const csv = toCsv(subscribers, fields);
             res.header("Content-Type", "text/csv");
             res.attachment("newsletter_subscribers.csv");
             res.send(csv);

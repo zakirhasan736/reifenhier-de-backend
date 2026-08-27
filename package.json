@@ -40,7 +40,6 @@
     "geoip-lite": "^1.4.10",
     "import": "^0.0.6",
     "ioredis": "^5.6.1",
-    "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
     "lodash.isequal": "^4.5.0",
     "mongodb": "^6.16.0",

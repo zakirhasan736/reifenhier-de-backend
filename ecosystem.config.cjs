@@ -4,6 +4,8 @@ module.exports = {
         {
             name: "tyre-backend",
             script: "src/server.js",
+            interpreter: "node",
+            exec_mode: "fork",
             node_args: "--max-old-space-size=8192", // Allow 8GB heap for large operations
             instances: 1,                           // Single instance (can scale later)
             autorestart: true,
@@ -16,6 +18,7 @@ module.exports = {
             name: "awin-cron",
             script: "src/start-cron.mjs",
             interpreter: "node",
+            exec_mode: "fork",
             node_args: "--max-old-space-size=8192", // Same for cron job
             instances: 1,
             autorestart: true,
