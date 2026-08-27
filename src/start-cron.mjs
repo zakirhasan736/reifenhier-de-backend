@@ -5,7 +5,8 @@ import { connectDB } from "./config/db.js";
 import "./api/utils/cron-job.js";
 import { startPriceAlertCron } from "./api/utils/priceAlertCron.js";
 import { startPushCampaignCron } from "./api/utils/pushCampaignCron.js";
-// import "./api/utils/cron-job-two.js";
+import { startReviewScraperCron } from "./api/utils/reviewScraperCron.js";
+import "./api/utils/cron-job-two.js";
 
 dotenv.config();
 
@@ -19,7 +20,8 @@ async function bootstrap() {
         console.log("[CRON] Connected to DB successfully.");
         startPriceAlertCron();
         startPushCampaignCron();
-        console.log("[CRON] Cron jobs loaded. Waiting for schedule...");
+        startReviewScraperCron();
+        console.log("[CRON] Cron jobs loaded (AWIN import, daily prices, reviews). Waiting for schedule...");
         setInterval(() => { }, 1 << 30);
     } catch (err) {
         console.error("[CRON ERROR]", err);

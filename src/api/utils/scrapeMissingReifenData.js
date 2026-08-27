@@ -38,7 +38,8 @@ async function scrapeWithRetry(product, maxRetries = 2) {
         } catch (err) {
             console.warn(`❌ Attempt ${attempt} failed for [${product.ean}] - ${err.message}`);
             if (attempt === maxRetries + 1) return false;
-            await new Promise((r) => setTimeout(r, 1000));
+            const waitMs = /429/.test(String(err.message)) ? 8000 * attempt : 1500 * attempt;
+            await new Promise((r) => setTimeout(r, waitMs));
         }
     }
 }
@@ -83,6 +84,7 @@ async function scrapeWithRetry(product, maxRetries = 2) {
         const success = await scrapeWithRetry(p);
         if (success) updated++;
         else failed.push(p.ean);
+        await new Promise((r) => setTimeout(r, 400));
     }
 
     console.log(`\n✅ Done. ${updated}/${total} product(s) updated.`);

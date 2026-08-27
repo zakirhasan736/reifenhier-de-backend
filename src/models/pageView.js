@@ -22,7 +22,6 @@ const pageViewSchema = new mongoose.Schema(
         viewed_at: {
             type: Date,
             default: Date.now,
-            index: true,
         },
     },
     { versionKey: false }

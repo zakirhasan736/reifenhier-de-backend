@@ -17,6 +17,11 @@ const clickSchema = new mongoose.Schema(
         brand_name: String,           // NEW — track brand clicks
         brand_id: String,
 
+        clickref: String,
+        campaign_id: String,
+        awin_affiliate_id: String,
+        awin_merchant_id: String,
+
         uuid: { type: String, index: true },
         source: String,               // e.g., “produktseite”, “vergleich”, “listing”
 
@@ -39,7 +44,6 @@ const clickSchema = new mongoose.Schema(
         clicked_at: {
             type: Date,
             default: Date.now,
-            index: true,
         },
     },
     { versionKey: false }

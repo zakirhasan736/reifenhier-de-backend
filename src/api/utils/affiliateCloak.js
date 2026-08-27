@@ -18,8 +18,12 @@ function encodeAffiliateUrl(url) {
 }
 
 function decodeAffiliateUrl(encoded) {
+    const raw = String(encoded || "").trim();
+    if (!raw) return null;
+    // Older records stored the raw AWIN URL as the "cloak" token.
+    if (/^https?:\/\/(www\.)?awin1\.com\//i.test(raw)) return raw;
     try {
-        const buf = Buffer.from(encoded, "base64url");
+        const buf = Buffer.from(raw, "base64url");
         const iv = buf.slice(0, 12);
         const tag = buf.slice(12, 28);
         const encrypted = buf.slice(28);

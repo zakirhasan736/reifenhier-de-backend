@@ -5,20 +5,23 @@
 import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
+import cron from "node-cron";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ── Config (env overrides) ──────────────────────────────────────────────
-const INTERVAL_MIN = Number(process.env.CRON_INTERVAL_MINUTES || 300); // 5 hours
+const INTERVAL_MIN = Number(process.env.CRON_INTERVAL_MINUTES || 1440); // daily merchant price check
 const CONTINUE_ON_ERROR = process.env.CRON_CONTINUE_ON_ERROR === "1";
 
 // List your scripts in execution order. You can override with CRON_JOBS env
 // (comma-separated relative or absolute paths).
 const DEFAULT_JOBS = [
-    // 1) Check availability & prune vendors/products
+    // 1) AWIN feed prices (same search_price shown on site and sent to vendor)
+    path.join(__dirname, "updatePricesIncremental.js"),
+    // 2) Check availability & prune vendors/products
     path.join(__dirname, "purgeUnavailableOffers.js"),
-    // 2) Verify & refresh prices
+    // 3) Verify & refresh prices against merchant pages
     path.join(__dirname, "refreshPricesFromMerchants.js"),
 ];
 
@@ -82,15 +85,14 @@ async function runCycle() {
 
     console.log(`🏁 Cycle finished @ ${new Date().toISOString()} — status: ${allOk ? "OK" : "FAILED"}`);
     running = false;
-
-    // Wait N minutes AFTER completion before next run
-    const delayMs = INTERVAL_MIN * 60 * 1000;
-    console.log(`🕒 Next cycle in ${INTERVAL_MIN} minute(s).\n`);
-    setTimeout(runCycle, delayMs);
 }
 
-// Kick off immediately when this module is loaded by start-cron.mjs
-setImmediate(runCycle);
+// Kick off daily at 05:15 (after overnight AWIN imports)
+cron.schedule("15 5 * * *", () => {
+    console.log("[CRON] Daily AWIN price + merchant verification cycle.");
+    runCycle();
+});
+console.log("[CRON] Daily price/lookup jobs scheduled at 05:15.");
 
 // Optional: clean shutdown messages (PM2 will handle restarts)
 process.on("SIGINT", () => {

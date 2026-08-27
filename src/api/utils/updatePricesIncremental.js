@@ -5,6 +5,8 @@ import fs from "fs";
 import path from "path";
 import axios from "axios";
 import csv from "csv-parser";
+import AdmZip from "adm-zip";
+import os from "os";
 import { detectCsvSeparator, csvSeparatorFromFeedUrl } from "./awinCsv.js";
 import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
@@ -15,12 +17,12 @@ dotenv.config();
 const LiveProduct = mongoose.model("Product", Product.schema, "products");
  
 /* ---------------- Config ---------------- */
-const FEED_URL = process.env.AWIN_QUICK_PRICE_URL || "";         // optional (https://...)
+const FEED_URL = process.env.AWIN_QUICK_PRICE_URL || process.env.AWIN_CSV_URL || "";         // optional (https://...)
 const FEED_PATH = process.env.AWIN_QUICK_PRICE_PATH || "";        // optional (/path/to/awin.csv)
 const GROUP_SIZE = Number(process.env.PRICE_GROUP_SIZE || 400);    // unique EANs per DB batch
 const PRINT_EVERY = Number(process.env.PRICE_PRINT_EVERY || 200);  // products per progress line
 const PRICE_EPS = Number(process.env.PRICE_EPS || 0.005);         // min delta to consider a change
-const TIMEOUT_MS = Number(process.env.FEED_HTTP_TIMEOUT_MS || 60000); // CSV download timeout
+const TIMEOUT_MS = Number(process.env.FEED_HTTP_TIMEOUT_MS || 180000); // ZIP download timeout
 
 /* ---------------- Utils ---------------- */
 function normalizeEAN(ean) {
@@ -91,6 +93,7 @@ function recomputeProductStats(productDoc) {
             vendor_id: cheapestOffer.vendor_id,
             vendor: cheapestOffer.vendor,
             vendor_logo: cheapestOffer.vendor_logo,
+            price: cheapestOffer.price,
             aw_deep_link: cheapestOffer.aw_deep_link,
             payment_icons: cheapestOffer.payment_icons,
             delivery_cost: cheapestOffer.delivery_cost,
@@ -116,10 +119,30 @@ function nearlyEqual(a = 0, b = 0, eps = PRICE_EPS) {
 /* ---------------- CSV source ---------------- */
 async function getCsvReadableStream() {
     if (FEED_URL) {
-        const resp = await axios.get(FEED_URL, { responseType: "stream", timeout: TIMEOUT_MS, maxContentLength: Infinity });
-        return resp.data; // readable stream
+        const resp = await axios.get(FEED_URL, {
+            responseType: "arraybuffer",
+            timeout: TIMEOUT_MS,
+            maxContentLength: Infinity,
+        });
+        const buffer = Buffer.from(resp.data);
+        const looksZip = buffer.slice(0, 2).toString() === "PK";
+        if (looksZip) {
+            const zip = new AdmZip(buffer);
+            const csvEntry = zip.getEntries().find((e) => e.entryName.endsWith(".csv"));
+            if (!csvEntry) throw new Error("CSV not found in AWIN ZIP");
+            const tmpPath = path.join(os.tmpdir(), `awin-prices-${Date.now()}.csv`);
+            fs.writeFileSync(tmpPath, zip.readFile(csvEntry));
+            const stream = fs.createReadStream(tmpPath);
+            stream.on("close", () => {
+                try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+            });
+            return stream;
+        }
+        const tmpPath = path.join(os.tmpdir(), `awin-prices-${Date.now()}.csv`);
+        fs.writeFileSync(tmpPath, buffer);
+        return fs.createReadStream(tmpPath);
     }
-    if (!FEED_PATH) throw new Error("No AWIN_QUICK_PRICE_URL or AWIN_QUICK_PRICE_PATH provided");
+    if (!FEED_PATH) throw new Error("No AWIN_CSV_URL or AWIN_QUICK_PRICE_PATH provided");
     return fs.createReadStream(path.resolve(FEED_PATH));
 }
 
@@ -150,7 +173,7 @@ async function processGroupBatch(eanToRowsMap, counters) {
         const incoming = rows.map(r => ({
             vendor_id: String(r.merchant_id || r.vendor_id || "").trim(),
             vendor: String(r.merchant_name || r.vendor || "").trim(),
-            price: parseSafeNumber(r.search_price),
+            price: parseSafeNumber(r.search_price) || parseSafeNumber(r.display_price) || parseSafeNumber(r.store_price),
             delivery_cost: r.delivery_cost,
             delivery_time: r.delivery_time,
             aw_product_id: r.aw_product_id,
@@ -287,6 +310,8 @@ async function main() {
                         merchant_id: row["merchant_id"],
                         merchant_name: row["merchant_name"],
                         search_price: row["search_price"],
+                        display_price: row["display_price"],
+                        store_price: row["store_price"],
                         delivery_cost: row["delivery_cost"],
                         delivery_time: row["delivery_time"],
                     };

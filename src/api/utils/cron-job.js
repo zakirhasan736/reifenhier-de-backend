@@ -175,6 +175,13 @@ async function attemptCsvImport() {
         await new Promise((resolve) => scraper.on("close", resolve));
         console.log("✅ [STEP 2] Scraper finished successfully.");
 
+        console.log("🖼  [STEP 3] Syncing product images (AWIN URL fallback on fail)...");
+        const imageSync = spawn("node", ["src/api/utils/uploadProductImages.js"], {
+            stdio: "inherit",
+        });
+        await new Promise((resolve) => imageSync.on("close", resolve));
+        console.log("✅ [STEP 3] Product image sync finished.");
+
         setTimeout(() => {
             fs.unlink(tmpPath, (err) => {
                 if (err)

@@ -17,6 +17,7 @@ import {
   waitForImportToFinish,
 } from '../src/api/product/importAWINCsv.js';
 import { parseAwinFeedMeta } from '../src/api/utils/awinCsv.js';
+import { spawn } from 'child_process';
 
 dotenv.config();
 
@@ -119,6 +120,21 @@ async function main() {
   } else {
     console.log('✅ Import completed successfully.');
   }
+
+  console.log('[STEP 4] Scraping missing Reifen.com reviews, ratings and gallery images…');
+  await new Promise((resolve) => {
+    const scraper = spawn(process.execPath, ['src/api/utils/scrapeMissingReifenData.js'], {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    scraper.on('close', resolve);
+    scraper.on('error', (err) => {
+      console.warn('[STEP 4] Scraper failed to start:', err.message);
+      resolve();
+    });
+  });
+  console.log('[STEP 4] Review scrape finished.');
 
   setTimeout(() => {
     try {
