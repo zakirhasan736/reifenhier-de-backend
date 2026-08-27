@@ -161,32 +161,34 @@ export const productLists = async (req, res) => {
                     average_rating: 1,
                     review_count: 1,
                     merchant_image_url: 1,
-                    offers: { $slice: 3 },
+                    tyre_label_info: 1,
+                    cheapest_vendor: 1,
+                    offers: 1,
                 })
                 .lean(),
             Product.countDocuments(filters),
             Product.aggregate([{ $facet: facetStage }], { allowDiskUse: true }),
         ]);
                 // Keep money fields numeric for clients/SEO (format in the UI).
-                const products = await Promise.all(productsRaw.map(async (product) => ({
+                const products = await Promise.all(productsRaw.map(async (product) => {
+                    const stats = liveOfferStats(product.offers);
+                    return {
                     ...product,
-                    cheapest_offer: Number(product.cheapest_offer) || 0,
-                    expensive_offer: Number(product.expensive_offer) || 0,
-                    search_price: Number(product.search_price) || 0,
-                    main_price: Number(product.main_price) || 0,
-                    offers: Array.isArray(product.offers)
-                        ? product.offers.map(o => ({
-                            ...o,
-                            price: Number(o.price) || 0,
-                        }))
-                        : [],
-                    savings_percent: product.savings_percent || "0%",
-                    total_offers: product.total_offers || (product.offers?.length || 1),
-                    zum_angebot_url: product.offers?.[0]?.aw_deep_link || "",
-                    vendor_name: product.offers?.[0]?.vendor || "",
-                    vendor_logo: product.offers?.[0]?.vendor_logo || "",
-                    // related_cheaper: await getCompetitors(product, 3)
-                })));
+                    cheapest_offer: stats.cheapest || toNumericPrice(product.cheapest_offer),
+                    expensive_offer: stats.expensive || toNumericPrice(product.expensive_offer),
+                    search_price: stats.cheapest || toNumericPrice(product.search_price),
+                    main_price: toNumericPrice(product.main_price),
+                    offers: stats.sorted.slice(0, 3),
+                    savings_percent: stats.savings_percent || product.savings_percent || "0%",
+                    total_offers: product.total_offers || stats.sorted.length || 1,
+                    cheapest_vendor: stats.cheapestOffer
+                        ? { ...(product.cheapest_vendor || {}), ...stats.cheapestOffer, price: stats.cheapest }
+                        : product.cheapest_vendor,
+                    zum_angebot_url: stats.cheapestOffer?.aw_deep_link || "",
+                    vendor_name: stats.cheapestOffer?.vendor || "",
+                    vendor_logo: stats.cheapestOffer?.vendor_logo || "",
+                    };
+                }));
 
         const result = agg[0] || {};
         const priceData = result.prices?.[0] || { min: 0, max: 0 };
@@ -296,6 +298,39 @@ function formatPrice(value) {
     const n = parseFloat(value);
     if (!isNaN(n)) return n.toFixed(2).replace(".", ",");
     return "0,00";
+}
+
+function toNumericPrice(value) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+    if (value == null || value === "" || value === "-") return 0;
+    const normalized = String(value)
+        .trim()
+        .replace(/\s/g, "")
+        .replace(/\.(?=\d{3}(\D|$))/g, "")
+        .replace(",", ".")
+        .replace(/[^\d.]/g, "");
+    const n = Number(normalized);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function sortOffersByPrice(offers = []) {
+    return [...offers].sort((a, b) => toNumericPrice(a?.price) - toNumericPrice(b?.price));
+}
+
+function liveOfferStats(offers = []) {
+    const sorted = sortOffersByPrice(offers).map((o) => ({
+        ...o,
+        price: toNumericPrice(o.price),
+    })).filter((o) => o.price > 0);
+    const prices = sorted.map((o) => o.price);
+    const cheapest = prices.length ? Math.min(...prices) : 0;
+    const expensive = prices.length ? Math.max(...prices) : 0;
+    const cheapestOffer = sorted.find((o) => o.price === cheapest) || null;
+    const savings_percent =
+        expensive > cheapest && expensive > 0
+            ? `-${Math.round(((expensive - cheapest) / expensive) * 100)}%`
+            : "0%";
+    return { sorted, cheapest, expensive, cheapestOffer, savings_percent };
 }  
   
 export const getProductDetails = async (req, res) => {
@@ -341,21 +376,19 @@ export const getProductDetails = async (req, res) => {
             return res.status(404).json({ message: "Product not found" });
         }
 
-        // Format price fields
+        const offerStats = liveOfferStats(product.offers);
         const formattedProduct = {
             ...product,
-            search_price: formatPrice(product.search_price),
-            main_price: formatPrice(product.main_price),
-            cheapest_offer: formatPrice(product.cheapest_offer),
-            expensive_offer: formatPrice(product.expensive_offer),
+            search_price: offerStats.cheapest || toNumericPrice(product.search_price),
+            main_price: toNumericPrice(product.main_price),
+            cheapest_offer: offerStats.cheapest || toNumericPrice(product.cheapest_offer),
+            expensive_offer: offerStats.expensive || toNumericPrice(product.expensive_offer),
+            savings_percent: offerStats.savings_percent || product.savings_percent || "0%",
+            offers: offerStats.sorted,
+            cheapest_vendor: offerStats.cheapestOffer
+                ? { ...(product.cheapest_vendor || {}), ...offerStats.cheapestOffer, price: offerStats.cheapest }
+                : product.cheapest_vendor,
         };
-
-        if (Array.isArray(product.offers)) {
-            formattedProduct.offers = product.offers.map(o => ({
-                ...o,
-                price: formatPrice(o.price),
-            }));
-        }
 
         const { width, height, diameter } = parseTyreDimensions(product.dimensions || '');
         const { lastIndex, speedIndex } = extractIndexesFromProductName(product.product_name || '');
@@ -416,15 +449,17 @@ export const getProductDetails = async (req, res) => {
         const cacheKey = `related:${product._id}`;
         const cached = getCachedRelatedProducts?.(cacheKey);
         if (cached) {
-            const formattedRelated = cached.map(p => ({
+            const formattedRelated = cached.map(p => {
+                const stats = liveOfferStats(p.offers);
+                return {
                 ...p,
-                search_price: formatPrice(p.search_price),
-                cheapest_offer: formatPrice(p.cheapest_offer),
-                expensive_offer: formatPrice(p.expensive_offer),
-                offers: Array.isArray(p.offers)
-                    ? p.offers.map(o => ({ ...o, price: formatPrice(o.price) }))
-                    : []
-            }));
+                search_price: stats.cheapest || toNumericPrice(p.search_price),
+                cheapest_offer: stats.cheapest || toNumericPrice(p.cheapest_offer),
+                expensive_offer: stats.expensive || toNumericPrice(p.expensive_offer),
+                savings_percent: stats.savings_percent || p.savings_percent || "0%",
+                offers: stats.sorted.slice(0, 3),
+                };
+            });
             return res.status(200).json({
                 product: formattedProduct,
                 relatedProducts: formattedRelated,
@@ -474,7 +509,8 @@ export const getProductDetails = async (req, res) => {
                     wet_grip: 1,
                     noise_class: 1,
                     createdAt: 1,
-                    offers: { $slice: ['$offers', 3] },
+                    tyre_label_info: 1,
+                    offers: 1,
                 },
             },
             { $sort: { createdAt: -1, search_price: 1 } },
@@ -489,15 +525,17 @@ export const getProductDetails = async (req, res) => {
             { $limit: 10 }
         ], { allowDiskUse: true });
 
-        const relatedProducts = related.map(p => ({
+        const relatedProducts = related.map(p => {
+            const stats = liveOfferStats(p.offers);
+            return {
             ...p,
-            search_price: formatPrice(p.search_price),
-            cheapest_offer: formatPrice(p.cheapest_offer),
-            expensive_offer: formatPrice(p.expensive_offer),
-            offers: Array.isArray(p.offers)
-                ? p.offers.map(o => ({ ...o, price: formatPrice(o.price) }))
-                : []
-        }));
+            search_price: stats.cheapest || toNumericPrice(p.search_price),
+            cheapest_offer: stats.cheapest || toNumericPrice(p.cheapest_offer),
+            expensive_offer: stats.expensive || toNumericPrice(p.expensive_offer),
+            savings_percent: stats.savings_percent || p.savings_percent || "0%",
+            offers: stats.sorted.slice(0, 3),
+            };
+        });
 
         // Cache for future
         setCachedRelatedProducts?.(cacheKey, relatedProducts);
@@ -601,6 +639,7 @@ export const getLatestProducts = async (req, res) => {
                     savings_percent: 1,
                     total_offers: 1,
                     offers: 1,
+                    tyre_label_info: 1,
                     width: 1,
                     height: 1,
                     diameter: 1,
@@ -616,18 +655,17 @@ export const getLatestProducts = async (req, res) => {
             return res.status(404).json({ message: "No products found." });
         }
         // Keep money fields numeric — format in the UI.
-        const formatted = result.map((p) => ({
+        const formatted = result.map((p) => {
+            const stats = liveOfferStats(p.offers);
+            return {
             ...p,
-            cheapest_offer: Number(p.cheapest_offer) || 0,
-            expensive_offer: Number(p.expensive_offer) || 0,
-            search_price: Number(p.search_price) || 0,
-            offers: Array.isArray(p.offers)
-                ? p.offers.map(o => ({
-                    ...o,
-                    price: Number(o.price) || 0,
-                }))
-                : []
-        }));
+            cheapest_offer: stats.cheapest || toNumericPrice(p.cheapest_offer),
+            expensive_offer: stats.expensive || toNumericPrice(p.expensive_offer),
+            search_price: stats.cheapest || toNumericPrice(p.search_price),
+            savings_percent: stats.savings_percent || p.savings_percent || "0%",
+            offers: stats.sorted.slice(0, 3),
+            };
+        });
 
         return res.status(200).json({
             message: "Latest 10 products (fast with facet & related_cheaper)",
@@ -892,6 +930,7 @@ export const getFeaturedProducts = async (req, res) => {
                     savings_percent: 1,
                     total_offers: 1,
                     offers: 1,
+                    tyre_label_info: 1,
                     in_stock: 1,
                     width: 1,
                     height: 1,
@@ -909,18 +948,17 @@ export const getFeaturedProducts = async (req, res) => {
         }
 
         // Keep money fields numeric — format in the UI.
-        const formatted = result.map((p) => ({
+        const formatted = result.map((p) => {
+            const stats = liveOfferStats(p.offers);
+            return {
             ...p,
-            cheapest_offer: Number(p.cheapest_offer) || 0,
-            expensive_offer: Number(p.expensive_offer) || 0,
-            search_price: Number(p.search_price) || 0,
-            offers: Array.isArray(p.offers)
-                ? p.offers.map(o => ({
-                    ...o,
-                    price: Number(o.price) || 0,
-                }))
-                : []
-        }));
+            cheapest_offer: stats.cheapest || toNumericPrice(p.cheapest_offer),
+            expensive_offer: stats.expensive || toNumericPrice(p.expensive_offer),
+            search_price: stats.cheapest || toNumericPrice(p.search_price),
+            savings_percent: stats.savings_percent || p.savings_percent || "0%",
+            offers: stats.sorted.slice(0, 3),
+            };
+        });
 
         return res.status(200).json({
             title: settings?.section_title || "Our recommendation",
