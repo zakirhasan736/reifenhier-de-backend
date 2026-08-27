@@ -1,6 +1,11 @@
 import express from 'express'
 import affiliateCloak from './affiliateCloak.js'
-import { appendAwinClickRef, buildAwinClickRef } from './awinTracking.js'
+import {
+  prepareAwinExitUrl,
+  extractAwinAffiliateId,
+  extractAwinMerchantId,
+  isTrackingBot,
+} from './awinTracking.js'
 import Product from '../../models/product.js'
 import Click from '../../models/click.js'
 import ProductInterest from '../../models/productInterest.js'
@@ -74,6 +79,10 @@ async function logVendorClick(req, {
   brandName = '',
   instruction = '',
   behavior = 'vendor_exit',
+  clickref = '',
+  campaignId = '',
+  awinAffiliateId = '',
+  awinMerchantId = '',
 }) {
   if (!productId) return
 
@@ -120,6 +129,10 @@ async function logVendorClick(req, {
     device_type: ctx.device_type,
     browser: ctx.browser,
     os: ctx.os,
+    clickref,
+    campaign_id: campaignId,
+    awin_affiliate_id: awinAffiliateId,
+    awin_merchant_id: awinMerchantId || resolvedVendorId,
     clicked_at: new Date(),
   })
 
@@ -202,6 +215,39 @@ async function handleVendorExit(req, res, token) {
     behavior = 'vendor_exit',
   } = { ...req.query, ...req.body }
 
+  const frontend = (process.env.FRONTEND_URL || 'https://www.reifexa.de').replace(
+    /\/$/,
+    ''
+  )
+  const ua = req.headers['user-agent'] || ''
+
+  // Bots/crawlers must not fire AWIN clicks (invalid traffic + wasted cookies).
+  if (isTrackingBot(ua)) {
+    setExitHeaders(res)
+    if (productId) {
+      try {
+        const product = await Product.findById(productId).select('slug').lean()
+        if (product?.slug) {
+          return res.redirect(302, `${frontend}/produkte/${product.slug}`)
+        }
+      } catch {
+        // fall through
+      }
+    }
+    return res.redirect(302, `${frontend}/produkte`)
+  }
+
+  const campaignId = process.env.AWIN_CAMPAIGN_ID || '566'
+  const exitUrl = prepareAwinExitUrl(decodedUrl, {
+    productId,
+    uuid,
+    from,
+    vendor,
+    vendorId,
+    campaignId,
+    affiliateId: process.env.AWIN_AFFILIATE_ID,
+  })
+
   try {
     await logVendorClick(req, {
       productId,
@@ -212,14 +258,22 @@ async function handleVendorExit(req, res, token) {
       brandName: brand,
       instruction,
       behavior,
+      clickref: (() => {
+        try {
+          return new URL(exitUrl).searchParams.get('clickref') || ''
+        } catch {
+          return ''
+        }
+      })(),
+      campaignId,
+      awinAffiliateId: extractAwinAffiliateId(exitUrl) || '',
+      awinMerchantId: extractAwinMerchantId(exitUrl) || vendorId || '',
     })
   } catch (err) {
     console.error('Click logging failed:', err)
   }
 
   setExitHeaders(res)
-  const clickRef = buildAwinClickRef({ productId, uuid, from })
-  const exitUrl = appendAwinClickRef(decodedUrl, clickRef)
   return res.redirect(302, exitUrl)
 }
 

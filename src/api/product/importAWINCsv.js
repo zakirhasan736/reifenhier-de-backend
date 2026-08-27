@@ -16,9 +16,11 @@ import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
 import { extractAwinAffiliateId, logAwinTrackingMismatch } from "../utils/awinTracking.js";
 import {
+    collectFeedImages,
     dedupeOffers,
     hasAwinAffiliateLink,
     pickDescription,
+    pickOfferPrice,
     pickReviewFields,
     pickTyreLabelFields,
 } from "../utils/offerUtils.js";
@@ -305,7 +307,9 @@ export async function importAWINCsv(filePath) {
 
                 row["search_price"] = parseSafeNumber(row["search_price"]);
                 row["store_price"] = parseSafeNumber(row["store_price"]);
+                row["display_price"] = parseSafeNumber(row["display_price"]);
                 row["rrp_price"] = parseSafeNumber(row["rrp_price"]);
+                row["base_price_amount"] = parseSafeNumber(row["base_price_amount"]);
 
                 rows.push(row);
             })
@@ -339,13 +343,13 @@ export async function importAWINCsv(filePath) {
                         if (!masterRow) masterRow = vendorRowsFiltered[0];
 
                         const vendorPrices = vendorRowsFiltered
-                            .map((r) => parseSafeNumber(r["search_price"]))
+                            .map((r) => pickOfferPrice(r))
                             .filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
 
                         const maxPrice = vendorPrices.length > 0 ? Math.max(...vendorPrices) : 0;
 
                         const offersRaw = vendorRowsFiltered.map((row) => {
-                            const vendorPrice = parseSafeNumber(row["search_price"]);
+                            const vendorPrice = pickOfferPrice(row);
                             const isValidPrice = typeof vendorPrice === "number" && !isNaN(vendorPrice) && vendorPrice > 0;
 
                             const savingsAmount = isValidPrice && maxPrice > vendorPrice ? +(maxPrice - vendorPrice).toFixed(2) : 0;
@@ -387,6 +391,15 @@ export async function importAWINCsv(filePath) {
                             vendorRowsFiltered,
                             masterRow["description"] || ""
                         );
+                        const feedImages = collectFeedImages(vendorRowsFiltered, masterRow);
+                        const primaryImage =
+                            masterRow["large_image"] ||
+                            masterRow["merchant_image_url"] ||
+                            masterRow["aw_image_url"] ||
+                            feedImages[0] ||
+                            masterRow["alternate_image"] ||
+                            masterRow["aw_thumb_url"] ||
+                            masterRow["merchant_thumb_url"];
 
                         const { width, height, diameter } = parseTyreDimensions(masterRow["dimensions"]);
                         const { speedIndex, lastIndex } = extractIndexesFromProductName(masterRow["product_name"]);
@@ -409,15 +422,15 @@ export async function importAWINCsv(filePath) {
                             brand_logo: findLogo("brands", masterRow["brand_name"]),
                             category_name: masterRow["category_name"],
                             category_id: masterRow["category_id"],
-                            product_image:
-                                masterRow["merchant_image_url"] ||
-                                masterRow["aw_image_url"] ||
-                                masterRow["aw_thumb_url"] ||
-                                masterRow["large_image"] ||
-                                masterRow["alternate_image"] ||
-                                masterRow["alternate_image_two"] ||
-                                masterRow["alternate_image_three"] ||
-                                masterRow["alternate_image_four"],
+                            product_image: primaryImage,
+                            merchant_thumb_url: masterRow["merchant_thumb_url"],
+                            aw_thumb_url: masterRow["aw_thumb_url"],
+                            large_image: masterRow["large_image"],
+                            alternate_image: masterRow["alternate_image"],
+                            alternate_image_two: masterRow["alternate_image_two"],
+                            alternate_image_three: masterRow["alternate_image_three"],
+                            alternate_image_four: masterRow["alternate_image_four"],
+                            gallery_images: feedImages,
                             description: productDescription,
                             product_affiliate_url: masterRow["aw_deep_link"],
                             product_url: cheapestVendorOffer
@@ -433,7 +446,7 @@ export async function importAWINCsv(filePath) {
                             savings_amount: savings.savings_amount,
                             total_offers: offers.length,
                             store_price: parseSafeNumber(masterRow["store_price"]),
-                            main_price: parseSafeNumber(masterRow["search_price"]),
+                            main_price: pickOfferPrice(masterRow),
                             rrp_price: parseSafeNumber(masterRow["rrp_price"]),
                             search_price: cheapest,
                             cheapest_offer: cheapest,
@@ -445,6 +458,7 @@ export async function importAWINCsv(filePath) {
                                     vendor_id: cheapestVendorOffer.vendor_id,
                                     vendor: cheapestVendorOffer.vendor,
                                     vendor_logo: cheapestVendorOffer.vendor_logo,
+                                    price: cheapestVendorOffer.price,
                                     aw_deep_link: cheapestVendorOffer.aw_deep_link,
                                     payment_icons: cheapestVendorOffer.payment_icons,
                                     delivery_cost: cheapestVendorOffer.delivery_cost,
@@ -476,7 +490,40 @@ export async function importAWINCsv(filePath) {
                             average_rating: reviewFields.average_rating,
                             review_count: reviewFields.review_count,
                             reviews: reviewFields.reviews,
-                            delivery_cost: masterRow["delivery_cost"],
+                            rating: reviewFields.rating,
+                            model_number: masterRow["model_number"],
+                            isbn: masterRow["isbn"],
+                            upc: masterRow["upc"],
+                            parent_product_id: masterRow["parent_product_id"],
+                            product_GTIN: masterRow["product_GTIN"] || masterRow["gtin"],
+                            basket_link: masterRow["basket_link"],
+                            custom_1: masterRow["custom_1"],
+                            custom_2: masterRow["custom_2"],
+                            custom_3: masterRow["custom_3"],
+                            custom_4: masterRow["custom_4"],
+                            custom_5: masterRow["custom_5"],
+                            custom_6: masterRow["custom_6"],
+                            custom_7: masterRow["custom_7"],
+                            custom_8: masterRow["custom_8"],
+                            custom_9: masterRow["custom_9"],
+                            saving: masterRow["saving"],
+                            base_price: masterRow["base_price"],
+                            base_price_amount: masterRow["base_price_amount"],
+                            base_price_text: masterRow["base_price_text"],
+                            product_price_old: masterRow["product_price_old"],
+                            delivery_restrictions: masterRow["delivery_restrictions"],
+                            delivery_weight: masterRow["delivery_weight"],
+                            warranty: masterRow["warranty"],
+                            terms_of_contract: masterRow["terms_of_contract"],
+                            valid_from: masterRow["valid_from"],
+                            valid_to: masterRow["valid_to"],
+                            is_for_sale: masterRow["is_for_sale"],
+                            web_offer: masterRow["web_offer"],
+                            pre_order: masterRow["pre_order"],
+                            stock_status: masterRow["stock_status"],
+                            size_stock_status: masterRow["size_stock_status"],
+                            size_stock_amount: masterRow["size_stock_amount"],
+                            number_available: masterRow["number_available"],
                             mpn: masterRow["mpn"],
                             width,
                             height,
@@ -535,6 +582,7 @@ export async function importAWINCsv(filePath) {
                             // Keep scraped reviews / EU label when CSV row is empty
                             if (!(newProd.average_rating > 0) && existing.average_rating > 0) {
                                 newProd.average_rating = existing.average_rating;
+                                newProd.rating = existing.rating || existing.average_rating;
                                 newProd.review_count = existing.review_count || newProd.review_count;
                                 newProd.reviews = existing.reviews || newProd.reviews;
                             }

@@ -1,4 +1,4 @@
-// src/api/utils/validators.js
+import { hasAwinAffiliateLink } from "./offerUtils.js";
 
 // export function isValidVendor(row, allowedVendor = 'reifencom') {
 //     const vendor = (row["merchant_name"] || "").toLowerCase().replace(/\s|\./g, "");

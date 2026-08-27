@@ -67,21 +67,80 @@ export function pickTyreLabelFields(rows = []) {
   return { noise_class: "", wet_grip: "", fuel_class: "" };
 }
 
+function parseRating(val) {
+  if (val === null || val === undefined || val === "") return 0;
+  const n = parseFloat(String(val).replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function parseCount(val) {
+  if (val === null || val === undefined || val === "") return 0;
+  const n = parseInt(String(val).replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 export function pickReviewFields(rows = []) {
   for (const row of preferReifenComFirst(rows)) {
     const average_rating =
-      parseFloat(row.average_rating) ||
-      parseFloat(row.rating) ||
-      0;
+      parseRating(row.average_rating) || parseRating(row.rating);
     const review_count =
-      parseInt(row.reviews, 10) ||
-      parseInt(row.number_available, 10) ||
-      0;
+      parseCount(row.reviews) || parseCount(row.number_available);
     if (average_rating > 0 || review_count > 0) {
-      return { average_rating, review_count, reviews: review_count };
+      return {
+        average_rating,
+        rating: average_rating,
+        review_count,
+        reviews: review_count,
+      };
     }
   }
-  return { average_rating: 0, review_count: 0, reviews: 0 };
+  return { average_rating: 0, rating: 0, review_count: 0, reviews: 0 };
+}
+
+const IMAGE_FIELDS = [
+  "large_image",
+  "merchant_image_url",
+  "aw_image_url",
+  "alternate_image",
+  "alternate_image_two",
+  "alternate_image_three",
+  "alternate_image_four",
+];
+
+export function collectFeedImages(rows = [], masterRow = {}) {
+  const urls = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const v = String(raw || "").trim();
+    if (!v || !/^https?:\/\//i.test(v)) return;
+    if (seen.has(v)) return;
+    seen.add(v);
+    urls.push(v);
+  };
+
+  const ordered = [masterRow, ...preferReifenComFirst(rows)].filter(Boolean);
+  for (const row of ordered) {
+    for (const field of IMAGE_FIELDS) add(row[field]);
+  }
+  add(masterRow.merchant_thumb_url);
+  add(masterRow.aw_thumb_url);
+  return urls;
+}
+
+export function pickOfferPrice(row = {}) {
+  const candidates = [
+    row.search_price,
+    row.display_price,
+    row.store_price,
+    row.base_price_amount,
+    row.base_price,
+  ];
+  for (const val of candidates) {
+    if (val === null || val === undefined || val === "") continue;
+    const n = parseFloat(String(val).replace(",", "."));
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
 }
 
 export function pickDescription(rows = [], fallback = "") {

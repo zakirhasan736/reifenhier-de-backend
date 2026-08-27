@@ -78,6 +78,8 @@ const ProductSchema = new mongoose.Schema({
     original_affiliate_url: String,
     delivery_cost: String,
     payment_icons: [String],
+    price: Number,
+    aw_product_id: String,
   },
   base_price: String,
   base_price_amount: String,

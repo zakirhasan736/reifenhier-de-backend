@@ -14,7 +14,7 @@ const pushCampaignLogSchema = new mongoose.Schema(
     body: String,
     url: String,
     meta: { type: mongoose.Schema.Types.Mixed },
-    sentAt: { type: Date, default: Date.now, index: true },
+    sentAt: { type: Date, default: Date.now },
   },
   { versionKey: false }
 )

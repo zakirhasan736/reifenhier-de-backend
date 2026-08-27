@@ -19,18 +19,43 @@ const ADMIN_BLOG_IMAGE_DIR = path.resolve(
     '../../admin/public/images/blogs'
 );
 
-// Ensure both folders exist!
-fs.mkdirSync(FRONTEND_BLOG_IMAGE_DIR, { recursive: true });
-fs.mkdirSync(ADMIN_BLOG_IMAGE_DIR, { recursive: true });
+const siblingFrontendBlogs = path.resolve(
+    process.cwd(),
+    '../reifenhier-de-frontend/public/images/blogs'
+);
+const siblingAdminBlogs = path.resolve(
+    process.cwd(),
+    '../reifenhier-de-admin/public/images/blogs'
+);
+
+// Ensure configured folders exist (production /env paths)
+for (const dir of [FRONTEND_BLOG_IMAGE_DIR, ADMIN_BLOG_IMAGE_DIR]) {
+    try {
+        fs.mkdirSync(dir, { recursive: true });
+    } catch (err) {
+        console.warn('Could not create blog image dir', dir, err?.message);
+    }
+}
 
 // Multer memory storage config
 const storage = multer.memoryStorage();
 export const upload = multer({ storage });
 
-// --- Helper: save buffer to both locations ---
 function saveToBothBlogDirs(filename, buffer) {
-    fs.writeFileSync(path.join(FRONTEND_BLOG_IMAGE_DIR, filename), buffer);
-    fs.writeFileSync(path.join(ADMIN_BLOG_IMAGE_DIR, filename), buffer);
+    const dirs = new Set([
+        FRONTEND_BLOG_IMAGE_DIR,
+        ADMIN_BLOG_IMAGE_DIR,
+        siblingFrontendBlogs,
+        siblingAdminBlogs,
+    ]);
+    for (const dir of dirs) {
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, filename), buffer);
+        } catch (err) {
+            console.warn('Could not write blog image to', dir, err?.message);
+        }
+    }
 }
 
 // --- Create Blog ---
