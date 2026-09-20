@@ -6,6 +6,7 @@ import {
       // getProductsBySession,
       uploadCsv, getProductDetails, getBrandSummary, updateFeaturedSettings, getLatestProducts, getFeaturedProducts, GetFilterTyres, getSearchSuggestions } from "./product.controller.js";
 import { getImportProgress } from "./importAWINCsv.js";
+import { googleMerchantFeed } from "./googleMerchantFeed.controller.js";
 const upload = multer({ dest: "uploads/" });
 
 const router = express.Router();
@@ -39,6 +40,7 @@ router.put('/sessions-settings', updateFeaturedSettings);
 // treats "filter-tyres" / "suggestions" as product slugs (404).
 router.get("/filter-tyres", GetFilterTyres);
 router.get("/suggestions", getSearchSuggestions);
+router.get("/google-merchant-feed.xml", googleMerchantFeed);
 
 // Keep this last so it does not swallow concrete routes.
 router.get("/:slug", getProductDetails);
