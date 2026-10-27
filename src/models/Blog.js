@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 const contentBlockSchema = new mongoose.Schema({
     type: {
         type: String,
-        enum: ['heading', 'paragraph', 'list'],
+        // 'widget' embeds an interactive component (e.g. the tyre price calculator)
+        enum: ['heading', 'paragraph', 'list', 'widget'],
         required: true,
     },
     level: {
@@ -12,6 +13,7 @@ const contentBlockSchema = new mongoose.Schema({
     }, // only for heading
     text: String, // for heading and paragraph
     items: [String], // for list
+    widget: String, // for widget, e.g. 'reifen-preisrechner'
     style: {
         type: String,
         enum: ['ul', 'ol'],

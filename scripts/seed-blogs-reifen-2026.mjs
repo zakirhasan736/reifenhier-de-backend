@@ -26,6 +26,7 @@ const posts = [
   // ------------------------------------------------------------------ 1
   {
     slug: "winterreifenpflicht-2026-alpine-symbol-bussgeld",
+    coverImage: "/images/blogs/winterreifenpflicht-2026.webp",
     title: "Winterreifenpflicht 2026: Alpine-Symbol, Bußgeld und Profiltiefe – alle Regeln",
     metaDescription:
       "Winterreifenpflicht 2026 in Deutschland: Wann Winterreifen Pflicht sind, warum M+S nicht mehr reicht, welche Bußgelder drohen und wie viel Profil nötig ist.",
@@ -96,6 +97,9 @@ const posts = [
           "Die zulässigen Größen stehen in der Zulassungsbescheinigung Teil I und im CoC-Papier. Die häufigsten Größen in Deutschland sind etwa [205/55 R16](/reifen/205-55-r16), [195/65 R15](/reifen/195-65-r15) und [225/45 R17](/reifen/225-45-r17). Ein Sonderfall: Winterreifen dürfen einen niedrigeren Geschwindigkeitsindex haben als im Fahrzeugschein steht – dann muss ein Hinweisaufkleber mit der Höchstgeschwindigkeit im Sichtfeld kleben."
         ),
         p(
+          "Was Winterreifen für Ihr Modell heute kosten, zeigt unser [Reifen-Preisrechner](/artikel/reifenpreise-2026-preisrechner): Automarke und Modell wählen, fertig."
+        ),
+        p(
           "Welche Modelle im aktuellen Test gut abschneiden, lesen Sie im Artikel [ADAC Winterreifentest 2026](/artikel/adac-winterreifentest-2026-testsieger). Die aktuellen Preise aller Händler finden Sie in unserem [Winterreifen-Preisvergleich](/winterreifen)."
         ),
       ],
@@ -114,6 +118,7 @@ const posts = [
   // ------------------------------------------------------------------ 2
   {
     slug: "adac-winterreifentest-2026-testsieger",
+    coverImage: "/images/blogs/winterreifentest-2026.webp",
     title: "ADAC Winterreifentest 2026: Testsieger, Verlierer und alle Noten",
     metaDescription:
       "ADAC Winterreifentest 2026: Continental, Pirelli, Michelin und Goodyear vorn, neun Reifen mangelhaft. Alle Noten für 185/65 R15 und 225/50 R17 im Überblick.",
@@ -201,6 +206,9 @@ const posts = [
           "Derselbe Reifen kostet bei verschiedenen Händlern oft unterschiedlich viel – bei vier Reifen plus Versand lohnt sich der Vergleich. In unserem Preisvergleich sehen Sie alle Angebote nebeneinander: [Winterreifen 185/65 R15](/reifen/185-65-r15), [Winterreifen 225/50 R17](/reifen/225-50-r17) oder alle [Winterreifen](/winterreifen) nach Ihrer Größe."
         ),
         p(
+          "Noch schneller geht es mit unserem [Reifen-Preisrechner](/artikel/reifenpreise-2026-preisrechner): Automarke und Modell wählen und sofort die heutigen Bestpreise für die Testsieger in Ihrer Größe sehen."
+        ),
+        p(
           "Was beim Kauf rechtlich gilt – Alpine-Symbol, Profiltiefe und Bußgelder – haben wir im Ratgeber zur [Winterreifenpflicht 2026](/artikel/winterreifenpflicht-2026-alpine-symbol-bussgeld) zusammengefasst."
         ),
       ],
@@ -210,6 +218,7 @@ const posts = [
   // ------------------------------------------------------------------ 3
   {
     slug: "ganzjahresreifen-oder-winterreifen-2026",
+    coverImage: "/images/blogs/ganzjahresreifen-oder-winterreifen-2026.webp",
     title: "Ganzjahresreifen oder Winterreifen? Der ADAC-Test 2026 und für wen sich Allwetterreifen lohnen",
     metaDescription:
       "Ganzjahresreifen oder Winterreifen? ADAC-Test 2026: nur ein Reifen gut, fünf mangelhaft. Vor- und Nachteile und für wen sich Allwetterreifen lohnen.",
@@ -274,6 +283,9 @@ const posts = [
           "Ein Satz Ganzjahresreifen spart den zweiten Reifensatz, die Kosten für zwei Wechsel pro Jahr und eventuell die Einlagerung. Dafür nutzt er sich schneller ab, weil er das ganze Jahr läuft. Für Wenigfahrer ist die Rechnung meist positiv, für Vielfahrer gleicht sich der Vorteil durch den höheren Verschleiß weitgehend aus."
         ),
         p(
+          "Was ein Satz Ganzjahres- oder Winterreifen für Ihr Auto konkret kostet, berechnet unser [Reifen-Preisrechner](/artikel/reifenpreise-2026-preisrechner) mit den aktuellen Händlerpreisen."
+        ),
+        p(
           "Wichtig für den Winter: Auch Ganzjahresreifen müssen das Alpine-Symbol tragen, um die Winterreifenpflicht zu erfüllen. Reine M+S-Reifen reichen seit Oktober 2024 nicht mehr aus – Details im Ratgeber zur [Winterreifenpflicht 2026](/artikel/winterreifenpflicht-2026-alpine-symbol-bussgeld)."
         ),
       ],
@@ -281,6 +293,92 @@ const posts = [
         h2("Fazit"),
         p(
           "Für Wenigfahrer in der Stadt ist ein guter Ganzjahresreifen eine bequeme und sichere Lösung – vorausgesetzt, Sie wählen ein Modell aus dem oberen Testfeld wie den Continental AllSeasonContact 2, den Pirelli Cinturato All Season SF 3 oder den Michelin CrossClimate 2. Von den mangelhaften Billigreifen sollten Sie die Finger lassen. Die aktuellen Preise aller Händler vergleichen Sie in unserem [Ganzjahresreifen-Preisvergleich](/ganzjahresreifen); wer lieber Spezialreifen fährt, findet die Ergebnisse im [ADAC Winterreifentest 2026](/artikel/adac-winterreifentest-2026-testsieger)."
+        ),
+      ],
+    ],
+  },
+  // ------------------------------------------------------------------ 4
+  {
+    slug: "reifenpreise-2026-preisrechner",
+    coverImage: "/images/blogs/reifenpreise-2026-preisrechner.webp",
+    title: "Reifenpreise 2026: Was kosten Reifen für mein Auto? Mit Preisrechner",
+    metaDescription:
+      "Was kosten Reifen für Golf, Polo, 3er & Co.? Automarke und Modell wählen und die heute günstigsten Winter-, Sommer- und Ganzjahresreifen aller Händler sehen.",
+    tags: ["Reifenpreise", "Reifen Preis berechnen", "Was kosten Winterreifen", "Preisrechner", "Reifen günstig"],
+    contentBlocks: [
+      [
+        p(
+          "Was kostet ein Satz neuer Reifen für mein Auto? Die ehrliche Antwort: Es hängt von Größe, Marke, Reifenart – und vom Händler ab. Derselbe Reifen kostet in verschiedenen Shops oft unterschiedlich viel. Mit unserem Preisrechner sehen Sie in wenigen Sekunden, was Reifen für Ihr Modell heute kosten und wo das beste Angebot liegt."
+        ),
+        { type: "widget", widget: "reifen-preisrechner" },
+      ],
+      [
+        h2("So funktioniert der Reifen-Preisrechner"),
+        ol([
+          "Automarke wählen, zum Beispiel VW, Opel oder BMW.",
+          "Modell wählen – der Rechner schlägt die häufigsten Serien-Reifengrößen vor.",
+          "Reifenart wählen: Winter-, Sommer- oder Ganzjahresreifen. Voreingestellt ist die aktuelle Saison.",
+          "Sie sehen den günstigsten Reifen von heute, einen Preis-Leistungs-Tipp mit besserer Nasshaftung und weitere Angebote mit Händler und Preis.",
+        ]),
+        p(
+          "Die Preise stammen aus den Produktdaten der Händler und werden mehrmals täglich aktualisiert. Die angezeigte Größe ist ein Vorschlag – maßgeblich sind die Felder 15.1 und 15.2 Ihrer Zulassungsbescheinigung Teil I oder die Angabe auf der Reifenflanke."
+        ),
+      ],
+      [
+        h2("Wovon hängt der Reifenpreis ab?"),
+        h3("1. Reifengröße"),
+        p(
+          "Der größte Preistreiber ist die Dimension. Kleinwagenreifen wie [185/65 R15](/reifen/185-65-r15) sind deutlich günstiger als Mittelklasse- oder SUV-Größen wie [225/50 R17](/reifen/225-50-r17). Je größer Felgendurchmesser und Breite, desto teurer wird es in der Regel."
+        ),
+        h3("2. Marke und Segment"),
+        p(
+          "Premiummarken wie [Continental](/marken/continental) oder [Michelin](/marken/michelin) kosten mehr als Budgetreifen – schneiden in Tests aber meist besser ab. Im [ADAC Winterreifentest 2026](/artikel/adac-winterreifentest-2026-testsieger) waren fast alle mangelhaften Reifen günstige Budgetmodelle. Gleichzeitig zeigen Mittelklasse-Marken, dass sicher nicht automatisch teuer heißt."
+        ),
+        h3("3. Reifenart"),
+        p(
+          "[Winterreifen](/winterreifen) und [Ganzjahresreifen](/ganzjahresreifen) sind wegen der aufwendigeren Lamellen und Gummimischung oft etwas teurer als [Sommerreifen](/sommerreifen) gleicher Größe. Ob sich ein Allwetterreifen für Sie rechnet, lesen Sie in unserem Vergleich [Ganzjahresreifen oder Winterreifen](/artikel/ganzjahresreifen-oder-winterreifen-2026)."
+        ),
+        h3("4. Händler und Zeitpunkt"),
+        p(
+          "Preise schwanken zwischen den Shops und über die Saison. Kurz vor dem ersten Schnee steigt die Nachfrage nach Winterreifen stark – wer früher vergleicht, hat mehr Auswahl in seiner Größe."
+        ),
+      ],
+      [
+        h2("Die Gesamtkosten im Blick"),
+        p("Zum Reifenpreis kommen beim Kauf meist noch weitere Posten hinzu:"),
+        ul([
+          "Versandkosten des Händlers (teils ab einem Bestellwert kostenlos)",
+          "Montage, Auswuchten und gegebenenfalls neue Ventile in der Werkstatt",
+          "bei Fahrzeugen mit Reifendruck-Kontrollsystem (RDKS) eventuell das Anlernen der Sensoren",
+          "Einlagerung des zweiten Reifensatzes, falls Sie getrennte Sommer- und Winterreifen fahren",
+        ]),
+        p(
+          "Viele Online-Händler bieten den Versand direkt an eine Partnerwerkstatt an. Vergleichen Sie deshalb nicht nur den Stückpreis, sondern auch Versand und Montage."
+        ),
+      ],
+      [
+        h2("5 Tipps, um beim Reifenkauf zu sparen"),
+        ol([
+          "Preise vergleichen: Derselbe Reifen kostet je nach Händler unterschiedlich viel.",
+          "Nicht zum billigsten Reifen greifen: Ein Testsieger aus dem Vorjahr oder ein guter Mittelklasse-Reifen bietet oft das beste Preis-Leistungs-Verhältnis.",
+          "Auf das EU-Reifenlabel achten: Nasshaftung und Rollwiderstand beeinflussen Sicherheit und Spritverbrauch über die gesamte Lebensdauer.",
+          "Rechtzeitig kaufen: Vor dem ersten Wintereinbruch ist die Auswahl in allen Größen am größten.",
+          "DOT-Nummer prüfen: Die letzten vier Ziffern zeigen Woche und Jahr der Herstellung. Neue Reifen sollten nicht unnötig alt sein.",
+        ]),
+      ],
+      [
+        h2("Häufige Fragen zu Reifenpreisen"),
+        h3("Was kosten Winterreifen für einen VW Golf?"),
+        p(
+          "Das hängt von der Größe ab – beim Golf meist [205/55 R16](/reifen/205-55-r16) oder 225/45 R17. Wählen Sie im Preisrechner oben VW und Golf, um die heutigen Preise aller Händler zu sehen."
+        ),
+        h3("Lohnen sich teure Markenreifen?"),
+        p(
+          "Bei sicherheitsrelevanten Eigenschaften wie Bremsweg auf nasser Straße oder Grip auf Schnee liegen Markenreifen in Tests meist vorn. Ganz billige No-Name-Reifen fallen häufig durch. Ein guter Kompromiss ist der Preis-Leistungs-Tipp im Rechner: bessere Nasshaftung für höchstens 25 Prozent Aufpreis gegenüber dem günstigsten Reifen."
+        ),
+        h3("Wie oft werden die Preise aktualisiert?"),
+        p(
+          "Die Händlerpreise werden mehrmals täglich abgeglichen. Maßgeblich ist immer der Preis im Shop des Händlers zum Zeitpunkt Ihrer Bestellung."
         ),
       ],
     ],
