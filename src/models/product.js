@@ -36,6 +36,8 @@ const OfferSchema = new mongoose.Schema({
 // Main Product schema
 const ProductSchema = new mongoose.Schema({
   ean: { type: String, required: true, unique: true },
+  // fingerprint of the last imported AWIN data — unchanged products are skipped
+  import_hash: { type: String },
   aw_product_id: String,
   merchant_product_id: String,
   product_name: String,
