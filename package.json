@@ -9,14 +9,16 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "cron": "node src/start-cron.mjs",
-    "import:awin": "node scripts/run-awin-import-once.mjs --force",
+    "import:awin": "node scripts/awin-sync-now.mjs",
     "images:sync": "node src/api/utils/uploadProductImages.js",
     "repair:offers": "node scripts/repair-product-offers.mjs",
     "repair:vendors": "node scripts/repair-vendor-assets.mjs",
     "build": "echo \"✔ No build step required for plain Node.js\"",
     "test": "echo \"No tests specified\" && exit 0",
     "awin:coverage": "node scripts/awin-vendor-coverage.mjs",
-    "blogs:seed-2026": "node scripts/seed-blogs-reifen-2026.mjs"
+    "blogs:seed-2026": "node scripts/seed-blogs-reifen-2026.mjs",
+    "awin:sync": "node scripts/awin-sync-now.mjs",
+    "awin:check": "node scripts/awin-sync-now.mjs --check-only"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
