@@ -26,8 +26,19 @@ const LOGO_ALIASES = {
  * Looks up the logo path for vendors/brands under src/images/{type}/.
  * Returns a frontend-relative path like /images/vendors/reifen-de.png
  */
+const logoCache = new Map();
+
 export function findLogo(type, name) {
   if (!name) return "";
+  // Called for every offer of every import (100k+ times); disk lookups are cached.
+  const cacheKey = `${type}|${name}`;
+  if (logoCache.has(cacheKey)) return logoCache.get(cacheKey);
+  const found = findLogoUncached(type, name);
+  logoCache.set(cacheKey, found);
+  return found;
+}
+
+function findLogoUncached(type, name) {
 
   const lower = String(name).trim().toLowerCase();
   const slug = LOGO_ALIASES[lower] || slugify(name);

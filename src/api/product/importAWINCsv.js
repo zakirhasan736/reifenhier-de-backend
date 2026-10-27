@@ -10,7 +10,7 @@ import ImportMeta from "../../models/ImportMeta.js";
 import { findLogo } from "../utils/logoFinder.js";
 import affiliateCloak from "../utils/affiliateCloak.js";
 import { getVendorPaymentIcons } from "../utils/vendorPaymentIcons.js";
-import isEqual from "lodash.isequal";
+import crypto from "crypto";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
@@ -102,9 +102,6 @@ function normalizeField(val) {
     if (typeof val === "string") return val.trim().toLowerCase();
     if (typeof val === "number") return Number(val);
     return val;
-}
-function sortOffersByVendorId(offers) {
-    return [...(offers || [])].sort((a, b) => (a.vendor_id || "").localeCompare(b.vendor_id || ""));
 }
 function hasNewVendorId(existingOffers = [], newOffers = []) {
     const existingIds = existingOffers.map((o) => o.vendor_id);
@@ -244,7 +241,33 @@ export function startCsvImportAsync(filePath) {
         });
 }
 
-const BATCH_SIZE = 50;
+// Products per DB round trip (find + bulkWrite). 50 meant hundreds of round trips.
+const BATCH_SIZE = Number(process.env.AWIN_IMPORT_BATCH || 500);
+const DEBUG_LOG_MAX = 300;
+
+/**
+ * Fingerprint of everything the feed decides for a product. If it matches the
+ * stored import_hash, the product is unchanged and is not rewritten. (The old
+ * deep isEqual never matched: cloak tokens use a random IV and the schema casts
+ * types, so every product was rewritten on every 3 h run.)
+ */
+function feedFingerprint(prod) {
+    const offers = [...(prod.offers || [])]
+        .map((o) => [o.vendor_id, o.price, o.in_stock !== false, o.original_affiliate_url, o.delivery_cost, o.delivery_time, o.merchant_deep_link, o.aw_product_id])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    const fields = COMPARE_FIELDS.filter((k) => k !== "offers").map((k) => prod[k] ?? null);
+    const extra = [prod.awin_image_url, prod.width, prod.height, prod.diameter, prod.noise_class, prod.wet_grip, prod.fuel_class, prod.average_rating, prod.review_count];
+    return crypto.createHash("sha1").update(JSON.stringify([offers, fields, extra])).digest("hex");
+}
+
+/** Count lines by scanning bytes in chunks (was: whole file read into one string). */
+async function countLines(filePath) {
+    let n = 0;
+    for await (const chunk of fs.createReadStream(filePath)) {
+        for (let i = 0; i < chunk.length; i++) if (chunk[i] === 10) n++;
+    }
+    return Math.max(0, n - 1);
+}
 
 export async function getImportProgress(req, res) {
     try {
@@ -289,15 +312,15 @@ export async function importAWINCsv(filePath) {
         let rowCount = 0;
         let totalLines = 0;
 
-        try {
-            totalLines = fs.readFileSync(filePath, "utf8").split(/\r?\n/).length - 1;
-        } catch {
-            totalLines = 0;
-        }
-        importStatus.total = totalLines;
 
         // Initialize meta
-        ImportMeta.findOneAndUpdate(
+        countLines(filePath)
+            .catch(() => 0)
+            .then((lines) => {
+                totalLines = lines;
+                importStatus.total = lines;
+            })
+            .then(() => ImportMeta.findOneAndUpdate(
             { source: "AWIN" },
             {
                 $set: {
@@ -311,7 +334,7 @@ export async function importAWINCsv(filePath) {
                 },
             },
             { upsert: true }
-        )
+        ))
             .then(() => {
                 const csvSeparator = detectCsvSeparator(filePath);
                 const feedMeta = parseAwinFeedMeta(process.env.AWIN_CSV_URL || "");
@@ -592,8 +615,23 @@ export async function importAWINCsv(filePath) {
                         const newProd = products[ean];
                         const existing = dbEanToProduct[ean];
 
+                        // Keep existing cloak tokens when the AWIN link is unchanged, so
+                        // product links stay stable between runs.
+                        if (existing?.offers?.length) {
+                            const tokenByUrl = new Map(
+                                existing.offers
+                                    .filter((o) => o.original_affiliate_url && o.affiliate_product_cloak_url)
+                                    .map((o) => [o.original_affiliate_url, o.affiliate_product_cloak_url])
+                            );
+                            for (const o of newProd.offers) {
+                                const t = tokenByUrl.get(o.original_affiliate_url);
+                                if (t) o.affiliate_product_cloak_url = t;
+                            }
+                        }
+
                         // Same price/best-vendor logic as every other price job.
                         Object.assign(newProd, computeOfferStats(newProd.offers));
+                        newProd.import_hash = feedFingerprint(newProd);
 
                         // ✅ Ensure slug exists for both insert and update paths
                         if (existing?.slug) {
@@ -639,53 +677,50 @@ export async function importAWINCsv(filePath) {
 
                         if (!existing) {
                             importStatus.imported++;
-                            await ImportMeta.updateOne({ source: "AWIN" }, { $inc: { imported: 1 } });
-
                             bulkOps.push({ insertOne: { document: newProd } });
-                            importStatus.debugLog.push(`[INSERT] ${ean}`);
+                            if (importStatus.debugLog.length < DEBUG_LOG_MAX) importStatus.debugLog.push(`[INSERT] ${ean}`);
                             if (String(newProd.product_image || "").includes("reifen.com")) {
                                 cloudinaryUploadQueue.add(ean);
                             }
                         } else {
-                            const updateProd = { ...newProd };
-                            const existingOffersSorted = sortOffersByVendorId(existing.offers);
-                            const newOffersSorted = sortOffersByVendorId(newProd.offers);
-                            const cleanExisting = {
-                                ...stripIgnoredFields(existing),
-                                offers: existingOffersSorted,
-                            };
-                            const cleanNew = {
-                                ...stripIgnoredFields(updateProd),
-                                offers: newOffersSorted,
-                            };
-
-                            if (!isEqual(cleanExisting, cleanNew)) {
-                                const reasons = findChangedFields(existing, newProd);
-                                if (hasNewVendorId(existing.offers || [], newProd.offers)) reasons.push("new_vendor_id");
-
+                            if (existing.import_hash !== newProd.import_hash) {
                                 importStatus.updated++;
-                                await ImportMeta.updateOne({ source: "AWIN" }, { $inc: { updated: 1 } });
-
                                 bulkOps.push({
                                     updateOne: {
                                         filter: { _id: existing._id },
                                         update: { $set: newProd }, // includes slug
                                     },
                                 });
-                                importStatus.debugLog.push(`[UPDATE] ${ean} - Reasons: ${reasons.join(", ")}`);
+                                if (importStatus.debugLog.length < DEBUG_LOG_MAX) {
+                                    const reasons = findChangedFields(existing, newProd);
+                                    if (hasNewVendorId(existing.offers || [], newProd.offers)) reasons.push("new_vendor_id");
+                                    importStatus.debugLog.push(`[UPDATE] ${ean} - Reasons: ${reasons.join(", ") || "offers"}`);
+                                }
                             } else {
                                 importStatus.skipped++;
                             }
                         }
                     }
 
-                    if (bulkOps.length) await LiveProduct.bulkWrite(bulkOps);
+                    if (bulkOps.length) await LiveProduct.bulkWrite(bulkOps, { ordered: false });
+                    // One progress write per batch (was one awaited write per product).
+                    await ImportMeta.updateOne(
+                        { source: "AWIN" },
+                        {
+                            $set: {
+                                imported: importStatus.imported,
+                                updated: importStatus.updated,
+                                skipped: importStatus.skipped,
+                                progress: Math.round(((i + batchKeys.length) / Math.max(1, groupKeys.length)) * 100),
+                            },
+                        }
+                    );
                 }
 
                 // Delete products that are no longer in the feed — but never on a
                 // truncated/failed download, which would wipe the catalogue.
                 const csvEanSet = new Set(Object.keys(grouped));
-                const allDbEans = (await LiveProduct.find({}, { ean: 1 })).map((p) => normalizeEAN(p.ean)).filter(Boolean);
+                const allDbEans = (await LiveProduct.find({}, { ean: 1 }).lean()).map((p) => normalizeEAN(p.ean)).filter(Boolean);
                 const toDeleteEans = allDbEans.filter((dbEan) => !csvEanSet.has(dbEan));
                 const maxDeleteRatio = Number(process.env.AWIN_MAX_DELETE_RATIO || 0.3);
                 const deleteRatio = allDbEans.length ? toDeleteEans.length / allDbEans.length : 0;

@@ -74,6 +74,32 @@ async function removeDuplicateEANs() {
     else console.log("[CLEANUP] No duplicate EANs found.");
 }
 
+let afterImportRunning = false;
+function runStep(script) {
+    return new Promise((resolve) => {
+        const child = spawn(process.execPath, [script], { stdio: "inherit" });
+        child.on("close", (code) => resolve(code));
+        child.on("error", () => resolve(-1));
+    });
+}
+function runAfterImportJobs() {
+    if (afterImportRunning) {
+        console.log("[STEP 2/3] Previous scraper/image sync still running — skipping this time.");
+        return;
+    }
+    afterImportRunning = true;
+    (async () => {
+        console.log("🕷 [STEP 2] Missing Reifen data scraper (background)...");
+        const c1 = await runStep("src/api/utils/scrapeMissingReifenData.js");
+        console.log(`✅ [STEP 2] Scraper finished (exit ${c1}).`);
+        console.log("🖼  [STEP 3] Product image sync (background)...");
+        const c2 = await runStep("src/api/utils/uploadProductImages.js");
+        console.log(`✅ [STEP 3] Image sync finished (exit ${c2}).`);
+    })().finally(() => {
+        afterImportRunning = false;
+    });
+}
+
 async function attemptCsvImport() {
     if (isRunning) return;
     if (!AWIN_CSV_URL) {
@@ -195,20 +221,10 @@ async function attemptCsvImport() {
 ────────────────────────────
 `);
 
-        console.log("🕷 [STEP 2] Running missing Reifen data scraper...");
-        const scraper = spawn("node", ["src/api/utils/scrapeMissingReifenData.js"], {
-            stdio: "inherit",
-        });
-
-        await new Promise((resolve) => scraper.on("close", resolve));
-        console.log("✅ [STEP 2] Scraper finished successfully.");
-
-        console.log("🖼  [STEP 3] Syncing product images (AWIN URL fallback on fail)...");
-        const imageSync = spawn("node", ["src/api/utils/uploadProductImages.js"], {
-            stdio: "inherit",
-        });
-        await new Promise((resolve) => imageSync.on("close", resolve));
-        console.log("✅ [STEP 3] Product image sync finished.");
+        // STEP 2+3 (scraper, image sync) are slow and don't affect prices or
+        // links, so they run in the background instead of holding up the
+        // next import. A still-running chain is never started twice.
+        runAfterImportJobs();
 
         setTimeout(() => {
             fs.unlink(tmpPath, (err) => {
