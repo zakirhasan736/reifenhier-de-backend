@@ -4,7 +4,7 @@ import {
   prepareAwinExitUrl,
   extractAwinAffiliateId,
   extractAwinMerchantId,
-  isTrackingBot,
+  isNonHumanExitRequest,
 } from './awinTracking.js'
 import Product from '../../models/product.js'
 import Click from '../../models/click.js'
@@ -101,11 +101,15 @@ async function logVendorClick(req, {
     product.cheapest_vendor?.vendor_id ||
     ''
 
+  // De-dupe double clicks / refreshes. 'guest' is shared by every visitor
+  // without a uuid, so fall back to anonymised IP + user agent for them.
+  const dedupeWho =
+    uuid && uuid !== 'guest' ? { uuid } : { ip: ctx.ip, user_agent: ctx.ua }
   const recent = await Click.findOne({
-    uuid,
+    ...dedupeWho,
     product_id: productId,
-    vendor_id: resolvedVendorId || undefined,
-    clicked_at: { $gte: new Date(Date.now() - 3000) },
+    ...(resolvedVendorId ? { vendor_id: resolvedVendorId } : {}),
+    clicked_at: { $gte: new Date(Date.now() - 30000) },
   }).lean()
 
   if (recent) return
@@ -190,7 +194,9 @@ async function logVendorClick(req, {
 function setExitHeaders(res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private')
   res.setHeader('Pragma', 'no-cache')
-  res.setHeader('Referrer-Policy', 'no-referrer')
+  // Let AWIN see reifexa.de as the referring site (origin only, no path/query).
+  // A blank referrer makes clicks look like untraceable/incentivised traffic.
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader('X-Robots-Tag', 'noindex, nofollow')
 }
 
@@ -219,10 +225,9 @@ async function handleVendorExit(req, res, token) {
     /\/$/,
     ''
   )
-  const ua = req.headers['user-agent'] || ''
-
-  // Bots/crawlers must not fire AWIN clicks (invalid traffic + wasted cookies).
-  if (isTrackingBot(ua)) {
+  // Bots, link previews, prefetches and HEAD probes must not fire AWIN clicks
+  // (they inflate clicks and drag conversion rate / EPC towards zero).
+  if (isNonHumanExitRequest(req)) {
     setExitHeaders(res)
     if (productId) {
       try {
