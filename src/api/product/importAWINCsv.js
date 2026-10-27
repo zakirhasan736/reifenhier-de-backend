@@ -207,7 +207,12 @@ function buildCoverageStats(grouped, importedKeys) {
         }
     }
     const stats = { at: new Date(), groupsTotal, groupsImported, groupsSingleVendor, groupsMultiVendor, merchants };
-    console.log("[AWIN] Vendor coverage:", JSON.stringify(stats, null, 2));
+    console.log(
+        `[AWIN] Coverage: ${groupsImported}/${groupsTotal} products imported, ${groupsMultiVendor} with 2+ shops. ` +
+            Object.entries(merchants)
+                .map(([n, m]) => `${n}: ${m.onProducts}/${m.rows}`)
+                .join(" · ")
+    );
     return stats;
 }
 
@@ -306,6 +311,24 @@ export async function getImportProgress(req, res) {
 const cloudinaryUploadQueue = new Set();
 
 export async function importAWINCsv(filePath) {
+    // Fresh counters for every run — the cron calls this repeatedly in one
+    // long-lived process, so totals used to add up across runs.
+    Object.assign(importStatus, {
+        running: true,
+        done: false,
+        progress: 0,
+        imported: 0,
+        updated: 0,
+        skipped: 0,
+        deleted: 0,
+        error: null,
+        startedAt: new Date(),
+        finishedAt: null,
+        filename: filePath,
+        debugLog: [],
+        vendors: [],
+        skipReasons: { invalidSecondCategory: 0, missingThirdCategory: 0, missingEAN: 0 },
+    });
     return new Promise((resolve, reject) => {
         const rows = [];
         const vendorsFound = new Set();
