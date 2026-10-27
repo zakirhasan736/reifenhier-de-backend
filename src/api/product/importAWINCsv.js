@@ -31,6 +31,7 @@ import {
     parseInStock,
     computeOfferStats,
     dropOutOfStockWhenAlternatives,
+    getFeedProductKey,
 } from "../utils/offerPricing.js";
 
 dotenv.config();
@@ -156,7 +157,9 @@ function findChangedFields(existing, incoming) {
     return changed;
 }
 function getProductKey(row) {
-    return normalizeEAN(row["ean"]);
+    // Same key as the quick price update — EAN, falling back to GTIN/UPC
+    // columns some merchants fill instead of "ean".
+    return getFeedProductKey(row);
 }
 function groupRowsByProductKey(rows) {
     const grouped = {};
@@ -177,6 +180,38 @@ function getVendorSavings(offers) {
     const savings_amount = max > min ? +(max - min).toFixed(2) : 0;
     const savings_percent = max > min ? `-${Math.round(((max - min) / max) * 100)}%` : "0%";
     return { savings_amount, savings_percent };
+}
+
+/**
+ * Per-merchant coverage of the last import: how many of each shop's rows
+ * ended up as an offer on a product, and why the rest didn't.
+ */
+function buildCoverageStats(grouped, importedKeys) {
+    const merchants = {};
+    const m = (name) =>
+        (merchants[name] ||= { rows: 0, onProducts: 0, noReifenComMatch: 0, noAwinLink: 0, noPrice: 0 });
+    let groupsTotal = 0, groupsImported = 0, groupsSingleVendor = 0, groupsMultiVendor = 0;
+    for (const [key, rows] of Object.entries(grouped)) {
+        groupsTotal++;
+        const imported = importedKeys.has(key);
+        const vendors = new Set();
+        for (const r of rows) {
+            const name = String(r.merchant_name || "unknown").trim();
+            const stat = m(name);
+            stat.rows++;
+            if (!hasAwinAffiliateLink(r)) { stat.noAwinLink++; continue; }
+            if (!(pickOfferPrice(r) > 0)) { stat.noPrice++; continue; }
+            if (imported) { stat.onProducts++; vendors.add(name); }
+            else stat.noReifenComMatch++;
+        }
+        if (imported) {
+            groupsImported++;
+            if (vendors.size > 1) groupsMultiVendor++; else groupsSingleVendor++;
+        }
+    }
+    const stats = { at: new Date(), groupsTotal, groupsImported, groupsSingleVendor, groupsMultiVendor, merchants };
+    console.log("[AWIN] Vendor coverage:", JSON.stringify(stats, null, 2));
+    return stats;
 }
 
 /* ---------------- Public API ---------------- */
@@ -304,7 +339,7 @@ export async function importAWINCsv(filePath) {
 
                 if (!isValidVendor(row)) return;
 
-                const groupKey = normalizeEAN(row["ean"]);
+                const groupKey = getProductKey(row);
                 if (!groupKey) {
                     importStatus.skipReasons.missingEAN++;
                     importStatus.skipped++;
@@ -320,10 +355,12 @@ export async function importAWINCsv(filePath) {
                 rows.push(row);
             })
             .on("end", async () => {
+              try {
                 importStatus.vendors = Array.from(vendorsFound).sort();
                 const grouped = groupRowsByProductKey(rows);
 
                 const groupKeys = Object.keys(grouped);
+                const products_seen = new Set();
                 for (let i = 0; i < groupKeys.length; i += BATCH_SIZE) {
                     const batchKeys = groupKeys.slice(i, i + BATCH_SIZE);
                     const products = {};
@@ -411,7 +448,7 @@ export async function importAWINCsv(filePath) {
                         const cheapestVendorOffer = offers.find((o) => o.price === cheapest);
                         const savings = getVendorSavings(offers);
 
-                        const ean = normalizeEAN(masterRow["ean"]);
+                        const ean = groupKey; // EAN, or GTIN/UPC fallback
 
                         products[groupKey] = {
                             ean,
@@ -539,6 +576,7 @@ export async function importAWINCsv(filePath) {
                             // ✅ NEW: inline slug creation (EAN appended for uniqueness)
                             slug: buildProductSlug(masterRow["brand_name"], masterRow["product_name"], ean),
                         };
+                        products_seen.add(groupKey);
                     }
 
                     const csvEanList = Object.keys(products);
@@ -679,11 +717,23 @@ export async function importAWINCsv(filePath) {
                             done: true,
                             lastSuccess: new Date(),
                             progress: 100,
+                            deleted: importStatus.deleted || 0,
+                            skipped: importStatus.skipped || 0,
+                            stats: buildCoverageStats(grouped, products_seen),
                         },
                     }
                 );
 
                 resolve();
+              } catch (err) {
+                // Never leave isRunning=true behind — that froze the cron.
+                importStatus.error = err?.message || String(err);
+                await ImportMeta.updateOne(
+                    { source: "AWIN" },
+                    { $set: { isRunning: false, done: false, lastError: importStatus.error, lastErrorAt: new Date() } }
+                ).catch(console.error);
+                reject(err);
+              }
             })
             .on("error", (err) => {
                 importStatus.error = err.message;

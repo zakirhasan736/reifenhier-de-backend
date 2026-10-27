@@ -314,7 +314,12 @@ function toNumericPrice(value) {
 }
 
 function sortOffersByPrice(offers = []) {
-    return [...offers].sort((a, b) => toNumericPrice(a?.price) - toNumericPrice(b?.price));
+    // In-stock vendors first, then cheapest — same order as the import.
+    return [...offers].sort(
+        (a, b) =>
+            Number(a?.in_stock === false) - Number(b?.in_stock === false) ||
+            toNumericPrice(a?.price) - toNumericPrice(b?.price)
+    );
 }
 
 function liveOfferStats(offers = []) {
@@ -323,16 +328,17 @@ function liveOfferStats(offers = []) {
         price: toNumericPrice(o.price),
     })).filter((o) => o.price > 0);
     const prices = sorted.map((o) => o.price);
-    const cheapest = prices.length ? Math.min(...prices) : 0;
+    // "Best price" = first offer after sorting (cheapest vendor that delivers)
+    const cheapestOffer = sorted[0] || null;
+    const cheapest = cheapestOffer ? cheapestOffer.price : 0;
     const expensive = prices.length ? Math.max(...prices) : 0;
-    const cheapestOffer = sorted.find((o) => o.price === cheapest) || null;
     const savings_percent =
-        expensive > cheapest && expensive > 0
+        expensive > cheapest && cheapest > 0
             ? `-${Math.round(((expensive - cheapest) / expensive) * 100)}%`
             : "0%";
     return { sorted, cheapest, expensive, cheapestOffer, savings_percent };
-}  
-  
+}
+
 export const getProductDetails = async (req, res) => {
     const { slug } = req.params;
 

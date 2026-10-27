@@ -6,6 +6,19 @@ import { spawn } from "child_process";
 import path from "path";
 import { fileURLToPath } from "url";
 import cron from "node-cron";
+import ImportMeta from "../../models/ImportMeta.js";
+
+/** Price jobs rewrite offers — never run them while the full AWIN import writes. */
+async function waitForFullImportIdle(maxMinutes = 180) {
+    const until = Date.now() + maxMinutes * 60000;
+    while (Date.now() < until) {
+        const meta = await ImportMeta.findOne({ source: "AWIN" }).lean().catch(() => null);
+        if (!meta?.isRunning) return true;
+        console.log("⏳ Full AWIN import running — price job waiting...");
+        await new Promise((r) => setTimeout(r, 60000));
+    }
+    return false;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,6 +88,11 @@ async function runCycle() {
 
     for (const job of JOBS) {
         const file = path.isAbsolute(job) ? job : path.resolve(process.cwd(), job);
+        if (!(await waitForFullImportIdle())) {
+            console.error("🛑  Full import still running after 3h — skipping remaining price jobs.");
+            allOk = false;
+            break;
+        }
         const res = await runJob(file);
         if (!res.ok && !CONTINUE_ON_ERROR) {
             allOk = false;

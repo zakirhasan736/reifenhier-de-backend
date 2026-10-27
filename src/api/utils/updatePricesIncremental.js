@@ -16,6 +16,7 @@ import {
     parseInStock,
     computeOfferStats,
     dropOutOfStockWhenAlternatives,
+    getFeedProductKey,
 } from "./offerPricing.js";
 import { hasAwinAffiliateLink } from "./offerUtils.js";
 
@@ -195,7 +196,7 @@ async function main() {
                 .pipe(csv({ separator: csvSeparator }))
                 .on("data", (row) => {
                     counters.rows++;
-                    const ean = normalizeEAN(row["ean"]);
+                    const ean = getFeedProductKey(row); // same key as the full import
                     if (!ean) return;
                     if (!eanMap.has(ean)) {
                         eanMap.set(ean, []);

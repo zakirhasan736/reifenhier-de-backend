@@ -74,3 +74,12 @@ test("merchant page price: only the main product, never cross-sells/shipping", (
   assert.equal(mainProductPrice(`<meta property="product:price:amount" content="91,50">`), 91.5);
   assert.equal(mainProductPrice(`<p>ab 4,99 €</p>`), undefined);
 });
+
+test("product key matches EAN, zero-padded EAN and GTIN-only rows", async () => {
+  const { getFeedProductKey } = await import("../src/api/utils/offerPricing.js");
+  assert.equal(getFeedProductKey({ ean: "4019238000001" }), "4019238000001");
+  assert.equal(getFeedProductKey({ ean: "04019238000001" }), "4019238000001");
+  assert.equal(getFeedProductKey({ ean: "", product_GTIN: "4019238000001" }), "4019238000001");
+  assert.equal(getFeedProductKey({ ean: "4.01924E+12", gtin: "4019238000001" }), "4019238000001");
+  assert.equal(getFeedProductKey({ ean: "n/a" }), "");
+});

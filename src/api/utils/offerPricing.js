@@ -156,3 +156,18 @@ export function computeOfferStats(offers = []) {
     in_stock: offers.some((o) => o.in_stock !== false && Number(o.price) > 0),
   };
 }
+
+/**
+ * Product match key for a feed row. EAN first, then other GTIN-style
+ * columns; digits only, leading zeros removed (EAN-13 vs UPC/GTIN-14
+ * padding), so "04019238...", "4019238..." and "4019238...\t" all match.
+ */
+export function getFeedProductKey(row = {}) {
+  for (const col of ["ean", "product_GTIN", "gtin", "upc", "isbn"]) {
+    const raw = String(row[col] ?? "").trim();
+    if (!raw || /e\+?\d/i.test(raw)) continue; // skip "4.01E+12" (Excel-mangled)
+    const digits = raw.replace(/\D/g, "").replace(/^0+/, "");
+    if (digits.length >= 8 && digits.length <= 14) return digits;
+  }
+  return "";
+}

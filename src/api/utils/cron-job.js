@@ -15,7 +15,8 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import ImportMeta from "../../models/ImportMeta.js";
 import Product from "../../models/product.js";
-import { startCsvImportAsync } from "../product/importAWINCsv.js";
+import { importAWINCsv } from "../product/importAWINCsv.js";
+import zlib from "zlib";
 import { spawn } from "child_process";
 
 dotenv.config();
@@ -24,7 +25,9 @@ const AWIN_CSV_URL = process.env.AWIN_CSV_URL;
 const MONGO_URI = process.env.MONGODB_URI;
 
 const RETRY_DELAY_MS = 2 * 60 * 1000;
-const SUCCESS_DELAY_MS = 3 * 60 * 60 * 1000; // 3h between full imports
+const SUCCESS_DELAY_MS = Number(process.env.AWIN_IMPORT_INTERVAL_MIN || 180) * 60 * 1000; // 3h between full imports
+const DOWNLOAD_TIMEOUT_MS = Number(process.env.AWIN_DOWNLOAD_TIMEOUT_MS || 15 * 60 * 1000);
+const IMPORT_TIMEOUT_MS = Number(process.env.AWIN_IMPORT_TIMEOUT_MS || 3 * 60 * 60 * 1000);
 const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
 
 let isRunning = false;
@@ -71,23 +74,6 @@ async function removeDuplicateEANs() {
     else console.log("[CLEANUP] No duplicate EANs found.");
 }
 
-async function waitForImportToFinish() {
-    console.log("[WAIT] Checking AWIN import status in DB...");
-    let meta;
-    const start = Date.now();
-
-    while (true) {
-        meta = await ImportMeta.findOne({ source: "AWIN" });
-        if (!meta?.isRunning) break;
-        process.stdout.write(".");
-        await new Promise((r) => setTimeout(r, 5000));
-    }
-
-    const duration = ((Date.now() - start) / 1000 / 60).toFixed(1);
-    console.log(`\n[WAIT] ✅ AWIN import completed (${duration} min).`);
-    return meta;
-}
-
 async function attemptCsvImport() {
     if (isRunning) return;
     if (!AWIN_CSV_URL) {
@@ -131,21 +117,63 @@ async function attemptCsvImport() {
         console.log("🚀 [STEP 1] Downloading and importing AWIN feed...");
         const cidMatch = AWIN_CSV_URL.match(/\/cid\/(\d+)/);
         if (cidMatch) console.log(`[AWIN] Feed campaign cid=${cidMatch[1]}`);
-        const res = await fetch(AWIN_CSV_URL);
-        if (!res.ok) throw new Error("AWIN CSV fetch failed: " + res.statusText);
+        // Download with a hard timeout — a hung request used to block the cron forever.
+        const ctrl = new AbortController();
+        const dlTimer = setTimeout(() => ctrl.abort(), DOWNLOAD_TIMEOUT_MS);
+        let buffer;
+        try {
+            const res = await fetch(AWIN_CSV_URL, { signal: ctrl.signal });
+            if (!res.ok) throw new Error(`AWIN CSV fetch failed: ${res.status} ${res.statusText}`);
+            buffer = Buffer.from(await res.arrayBuffer());
+        } finally {
+            clearTimeout(dlTimer);
+        }
 
-        const buffer = Buffer.from(await res.arrayBuffer());
-        const zip = new AdmZip(buffer);
-        const csvEntry = zip.getEntries().find((e) => e.entryName.endsWith(".csv"));
-        if (!csvEntry) throw new Error("CSV not found in ZIP");
+        // AWIN can deliver zip, gzip or plain CSV depending on the feed URL.
+        let csvBuffer;
+        if (buffer.slice(0, 2).toString() === "PK") {
+            const zip = new AdmZip(buffer);
+            const csvEntry = zip.getEntries().find((e) => /\.csv$/i.test(e.entryName));
+            if (!csvEntry) throw new Error("CSV not found in ZIP");
+            csvBuffer = zip.readFile(csvEntry);
+        } else if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
+            csvBuffer = zlib.gunzipSync(buffer);
+        } else {
+            csvBuffer = buffer;
+        }
+        const headerLine = csvBuffer.slice(0, 2000).toString("utf8").split(/\r?\n/)[0] || "";
+        if (!/aw_deep_link/.test(headerLine) || !/merchant_name/.test(headerLine)) {
+            throw new Error(`AWIN feed has unexpected columns (got: ${headerLine.slice(0, 200)})`);
+        }
 
         const tmpPath = path.join(TEMP_DIR, `awin-${Date.now()}.csv`);
-        fs.writeFileSync(tmpPath, zip.readFile(csvEntry));
-        console.log(`[STEP 1] CSV extracted → ${tmpPath}`);
+        fs.writeFileSync(tmpPath, csvBuffer);
+        const mb = (csvBuffer.length / 1024 / 1024).toFixed(1);
+        console.log(`[STEP 1] CSV extracted (${mb} MB) → ${tmpPath}`);
 
-        startCsvImportAsync(tmpPath);
-        console.log("[STEP 1] Waiting for AWIN import to finish...");
-        const finalMeta = await waitForImportToFinish();
+        // Await the import itself (with timeout). Polling the DB flag deadlocked
+        // whenever the import crashed before clearing isRunning.
+        let importTimer;
+        try {
+            await Promise.race([
+                importAWINCsv(tmpPath),
+                new Promise((_, reject) => {
+                    importTimer = setTimeout(
+                        () => reject(new Error(`AWIN import exceeded ${IMPORT_TIMEOUT_MS / 60000} min`)),
+                        IMPORT_TIMEOUT_MS
+                    );
+                }),
+            ]);
+        } catch (err) {
+            await ImportMeta.updateOne(
+                { source: "AWIN" },
+                { $set: { isRunning: false, done: false, lastError: String(err?.message || err), lastErrorAt: new Date() } }
+            ).catch(() => {});
+            throw err;
+        } finally {
+            clearTimeout(importTimer);
+        }
+        const finalMeta = await ImportMeta.findOne({ source: "AWIN" }).lean();
 
         const total = finalMeta?.total || 0;
         const imported = finalMeta?.imported || 0;
