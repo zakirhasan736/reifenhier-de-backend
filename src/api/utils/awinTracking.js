@@ -20,10 +20,28 @@ export function slugTrack(value, max = CLICKREF_MAX) {
     .slice(0, max)
 }
 
+const BOT_UA_RE =
+  /bot\b|bot\/|crawler|spider|crawl|slurp|google-inspectiontool|googleother|storebot-google|adsbot|mediapartners|google-read-aloud|feedfetcher|bingpreview|adidxbot|yandex|facebookexternalhit|meta-externalagent|whatsapp|skypeuripreview|ahrefs|semrush|chatgpt-user|perplexity|ccbot|diffbot|ia_archiver|screaming frog|lighthouse|pagespeed|gtmetrix|pingdom|uptimerobot|statuscake|headlesschrome|phantomjs|puppeteer|playwright|selenium|python-requests|python-urllib|aiohttp|httpx|axios\/|node-fetch|undici|curl\/|wget\/|libwww|java\/|okhttp|go-http-client|scrapy|postman|insomnia|reifexa-bounce/i
+
+/** True for crawlers, link previewers, monitors and scripted HTTP clients. */
 export function isTrackingBot(ua) {
-  return /googlebot|bingbot|yandex|baiduspider|duckduckbot|facebookexternalhit|twitterbot|linkedinbot|slackbot|ahrefs|semrush|dotbot|mj12bot|gptbot|claudebot|bytespider|petalbot|applebot|ia_archiver|screaming frog|lighthouse|pingdom|uptimerobot/i.test(
-    String(ua || '')
-  )
+  const s = String(ua || '').trim()
+  if (!s || s === 'unknown' || s.length < 20) return true
+  return BOT_UA_RE.test(s)
+}
+
+/**
+ * Browser speculative loads (prefetch/prerender), HEAD probes and bots
+ * must never become an AWIN click.
+ */
+export function isNonHumanExitRequest(req) {
+  const h = req?.headers || {}
+  const purpose = String(
+    h['sec-purpose'] || h['purpose'] || h['x-purpose'] || h['x-moz'] || ''
+  ).toLowerCase()
+  if (/prefetch|prerender|preview/.test(purpose)) return true
+  if (req?.method === 'HEAD' || req?.method === 'OPTIONS') return true
+  return isTrackingBot(h['user-agent'])
 }
 
 export function buildAwinClickRef({ productId, uuid, from } = {}) {
