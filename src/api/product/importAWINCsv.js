@@ -26,6 +26,12 @@ import {
     pickReviewFields,
     pickTyreLabelFields,
 } from "../utils/offerUtils.js";
+import {
+    parsePrice,
+    parseInStock,
+    computeOfferStats,
+    dropOutOfStockWhenAlternatives,
+} from "../utils/offerPricing.js";
 
 dotenv.config();
 
@@ -72,10 +78,8 @@ function normalizeEAN(ean) {
     return ean.trim().replace(/^0+/, "");
 }
 function parseSafeNumber(val) {
-    if (!val && val !== 0) return undefined;
-    const normalized = String(val).replace(",", ".").trim();
-    const num = parseFloat(normalized);
-    return isNaN(num) ? undefined : num;
+    // "1.234,56" used to become 1.234 — use the shared EU-aware parser.
+    return parsePrice(val);
 }
 function parseTyreDimensions(dim) {
     if (!dim) return { width: "", height: "", diameter: "" };
@@ -382,11 +386,13 @@ export async function importAWINCsv(filePath) {
                                 delivery_time: row["delivery_time"],
                                 product_category: row["merchant_product_third_category"],
                                 merchant_deep_link: row["merchant_deep_link"],
-                                in_stock: row["in_stock"] === "1" || row["in_stock"] === 1 || row["in_stock"] === 1.0,
+                                in_stock: parseInStock(row["in_stock"]),
                             };
                         });
 
-                        const offers = dedupeOffers(offersRaw);
+                        // One offer per vendor (in-stock first, then lowest price), and
+                        // hide vendors without stock when someone else can deliver.
+                        const offers = dropOutOfStockWhenAlternatives(dedupeOffers(offersRaw));
                         const tyreLabels = pickTyreLabelFields(vendorRowsFiltered);
                         const reviewFields = pickReviewFields(vendorRowsFiltered);
                         const productDescription = pickDescription(
@@ -548,23 +554,8 @@ export async function importAWINCsv(filePath) {
                         const newProd = products[ean];
                         const existing = dbEanToProduct[ean];
 
-                        const priceList = newProd.offers.map((o) => o.price).filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
-                        const cheapest_offer = priceList.length ? Math.min(...priceList) : 0;
-                        const expensive_offer = priceList.length ? Math.max(...priceList) : 0;
-                        const savings_amount = expensive_offer > cheapest_offer ? +(expensive_offer - cheapest_offer).toFixed(2) : 0;
-                        const savings_percent =
-                            expensive_offer > cheapest_offer ? `-${Math.round(((expensive_offer - cheapest_offer) / expensive_offer) * 100)}%` : "0%";
-
-                        newProd.cheapest_offer = cheapest_offer;
-                        newProd.expensive_offer = expensive_offer;
-                        newProd.savings_amount = savings_amount;
-                        newProd.savings_percent = savings_percent;
-                        newProd.search_price = cheapest_offer;
-                        newProd.cheapest_price_display = cheapest_offer ? `${cheapest_offer.toFixed(2).replace(".", ",")} €` : undefined;
-                        newProd.expensive_price_display = expensive_offer ? `${expensive_offer.toFixed(2).replace(".", ",")} €` : undefined;
-                        newProd.savings_badge = savings_amount > 0 ? `Spare ${savings_percent}` : undefined;
-                        newProd.offer_count_display = newProd.offers.length > 1 ? `${newProd.offers.length} Angebote` : "1 Angebot";
-                        newProd.total_offers = newProd.offers.length;
+                        // Same price/best-vendor logic as every other price job.
+                        Object.assign(newProd, computeOfferStats(newProd.offers));
 
                         // ✅ Ensure slug exists for both insert and update paths
                         if (existing?.slug) {
@@ -650,11 +641,21 @@ export async function importAWINCsv(filePath) {
                     if (bulkOps.length) await LiveProduct.bulkWrite(bulkOps);
                 }
 
-                // Delete absent EANs (optional)
+                // Delete products that are no longer in the feed — but never on a
+                // truncated/failed download, which would wipe the catalogue.
                 const csvEanSet = new Set(Object.keys(grouped));
                 const allDbEans = (await LiveProduct.find({}, { ean: 1 })).map((p) => normalizeEAN(p.ean)).filter(Boolean);
                 const toDeleteEans = allDbEans.filter((dbEan) => !csvEanSet.has(dbEan));
-                if (toDeleteEans.length > 0) {
+                const maxDeleteRatio = Number(process.env.AWIN_MAX_DELETE_RATIO || 0.3);
+                const deleteRatio = allDbEans.length ? toDeleteEans.length / allDbEans.length : 0;
+                if (toDeleteEans.length > 0 && deleteRatio > maxDeleteRatio) {
+                    importStatus.deleted = 0;
+                    console.warn(
+                        `[AWIN] Refusing to delete ${toDeleteEans.length}/${allDbEans.length} products ` +
+                        `(${Math.round(deleteRatio * 100)}% > ${Math.round(maxDeleteRatio * 100)}%). ` +
+                        "Feed looks incomplete — check the download. Set AWIN_MAX_DELETE_RATIO to override."
+                    );
+                } else if (toDeleteEans.length > 0) {
                     const deleted = await LiveProduct.deleteMany({ ean: { $in: toDeleteEans } });
                     importStatus.deleted = deleted.deletedCount || 0;
                 } else {
