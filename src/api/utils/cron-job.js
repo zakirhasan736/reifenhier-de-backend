@@ -16,6 +16,7 @@ import mongoose from "mongoose";
 import ImportMeta from "../../models/ImportMeta.js";
 import Product from "../../models/product.js";
 import { importAWINCsv } from "../product/importAWINCsv.js";
+import { getLockState, lockState, releaseStaleLock } from "./importLock.js";
 import zlib from "zlib";
 import { spawn } from "child_process";
 
@@ -115,15 +116,14 @@ async function attemptCsvImport() {
     if (!meta) {
         console.log("[CRON] No ImportMeta record — running first import.");
     } else if (meta.isRunning) {
-        const started = meta.lastStarted?.getTime() || 0;
-        const stuckMs = 6 * 60 * 60 * 1000; // 6h
-        if (started && now - started > stuckMs) {
-            console.warn("[CRON] Resetting stuck isRunning flag (>6h).");
-            await ImportMeta.updateOne({ source: "AWIN" }, { $set: { isRunning: false } });
-        } else {
-            console.log("[CRON] ⏳ Import already running — skipping.");
+        const lock = lockState(meta);
+        if (lock.alive) {
+            console.log(`[CRON] ⏳ Import already running (${lock.progress}%, heartbeat ${lock.heartbeatSecAgo}s ago) — skipping.`);
             return;
         }
+        // The process that held the lock is gone (crash, pm2 restart, reboot).
+        console.warn(`[CRON] Releasing dead import lock (no heartbeat for ${Math.round(lock.heartbeatSecAgo / 60)} min).`);
+        await releaseStaleLock();
     }
 
     if (now - lastSuccess < SUCCESS_DELAY_MS) {
@@ -176,6 +176,14 @@ async function attemptCsvImport() {
         fs.writeFileSync(tmpPath, csvBuffer);
         const mb = (csvBuffer.length / 1024 / 1024).toFixed(1);
         console.log(`[STEP 1] CSV extracted (${mb} MB) → ${tmpPath}`);
+
+        // A manual sync may have started while we were downloading.
+        const lockNow = await getLockState();
+        if (lockNow.alive) {
+            console.log("[CRON] ⏳ Another import started during the download — skipping this run.");
+            fs.unlink(tmpPath, () => {});
+            return;
+        }
 
         // Await the import itself (with timeout). Polling the DB flag deadlocked
         // whenever the import crashed before clearing isRunning.

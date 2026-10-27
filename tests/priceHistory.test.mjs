@@ -26,3 +26,14 @@ test("ignores missing prices", () => {
 test("berlinDay is YYYY-MM-DD in Berlin time", () => {
   assert.equal(berlinDay(new Date("2026-10-27T23:30:00Z")), "2026-10-28"); // 00:30 CET
 });
+
+test("import lock: fresh heartbeat is alive, old heartbeat is dead, old code (no heartbeat) uses start time", async () => {
+  const { lockState } = await import("../src/api/utils/importLock.js");
+  const now = Date.parse("2026-10-27T16:00:00Z");
+  const ago = (m) => new Date(now - m * 60000);
+  assert.equal(lockState({ isRunning: false }, now).running, false);
+  assert.equal(lockState({ isRunning: true, lastStarted: ago(40), heartbeatAt: ago(0.2) }, now).alive, true);
+  assert.equal(lockState({ isRunning: true, lastStarted: ago(40), heartbeatAt: ago(15) }, now).alive, false);
+  assert.equal(lockState({ isRunning: true, lastStarted: ago(8) }, now).alive, true);
+  assert.equal(lockState({ isRunning: true, lastStarted: ago(25) }, now).alive, false);
+});

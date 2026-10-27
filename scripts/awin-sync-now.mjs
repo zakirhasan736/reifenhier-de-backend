@@ -7,12 +7,14 @@
  *   node scripts/awin-sync-now.mjs --check-only       # no import, only compare
  *   node scripts/awin-sync-now.mjs --vendor reifen.com
  *   node scripts/awin-sync-now.mjs --file ./feed.csv  # use a downloaded feed
- *   node scripts/awin-sync-now.mjs --force            # take over a lock older than 30 min
+ *   node scripts/awin-sync-now.mjs --status           # is an import running? (exit 0 idle, 3 running)
+ *   node scripts/awin-sync-now.mjs --import-anyway    # import even if the cron just finished one
  *   node scripts/awin-sync-now.mjs --scrape           # also run review scraper + image sync
  *
  * Exit code 0 = all imported prices match the feed, 1 = problems found.
- * Safe to run while the cron is active: it refuses to start if an import is
- * already running (unless that lock is stale and --force is given).
+ * Safe to run while the cron is active: if the cron is importing right now,
+ * this waits for it to finish (showing its progress) and then only verifies.
+ * A lock left by a dead process (no heartbeat for 10 min) is released.
  */
 import fs from "fs";
 import os from "os";
@@ -29,6 +31,7 @@ import { importAWINCsv } from "../src/api/product/importAWINCsv.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../src/api/utils/awinCsv.js";
 import { getFeedProductKey, pickRowPrice, parseInStock } from "../src/api/utils/offerPricing.js";
 import { hasAwinAffiliateLink } from "../src/api/utils/offerUtils.js";
+import { getLockState, releaseStaleLock, waitForImportIdle } from "../src/api/utils/importLock.js";
 
 dotenv.config();
 
@@ -36,12 +39,12 @@ const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
 const opt = (f) => (args.indexOf(f) >= 0 ? args[args.indexOf(f) + 1] : undefined);
 const CHECK_ONLY = flag("--check-only");
-const FORCE = flag("--force");
+const STATUS = flag("--status");
+const IMPORT_ANYWAY = flag("--import-anyway");
 const SCRAPE = flag("--scrape");
 const VENDOR = String(opt("--vendor") || "").trim().toLowerCase();
 const FILE = opt("--file");
 const EXPECTED_A = process.env.AWIN_AFFILIATE_ID || process.env.AWIN_PUBLISHER_ID || "2985775";
-const STALE_LOCK_MS = 30 * 60 * 1000;
 
 const t0 = Date.now();
 const secs = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
@@ -172,6 +175,11 @@ async function verify(feed) {
     });
   }
   report.sort((a, b) => b["Zeilen im Feed"] - a["Zeilen im Feed"]);
+  const totalOnSite = report.reduce((n, r) => n + r["auf reifexa"], 0);
+  if (totalOnSite === 0) {
+    console.log("\n❌ Keine einzige Feed-Position ist auf reifexa zu finden – Import fehlgeschlagen oder falsche Datenbank (MONGODB_URI).");
+    problems += 1;
+  }
   console.log("");
   console.table(report);
   console.log(
@@ -189,19 +197,45 @@ async function verify(feed) {
 await mongoose.connect(process.env.MONGODB_URI);
 log("Connected to MongoDB");
 
+if (STATUS) {
+  const s = await getLockState();
+  const m = await ImportMeta.findOne({ source: "AWIN" }).lean();
+  console.log(
+    s.running
+      ? `Import ${s.alive ? "RUNNING" : "STUCK (process gone)"} — started ${s.startedMinAgo} min ago, ${s.progress}% done, heartbeat ${s.heartbeatSecAgo}s ago`
+      : `No import running. Last successful import: ${m?.lastSuccess ? new Date(m.lastSuccess).toLocaleString("de-DE") : "never"}`
+  );
+  await mongoose.disconnect();
+  process.exit(s.running && s.alive ? 3 : 0);
+}
+
+// If the cron is importing right now, wait for it instead of fighting it.
+let freshFromCron = false;
+if (!CHECK_ONLY) {
+  const s = await getLockState();
+  if (s.running && s.alive) {
+    log(`The cron is importing right now (${s.progress}% done) — waiting for it to finish…`);
+    const r = await waitForImportIdle({
+      onWait: (st) => log(`  … still importing: ${st.progress}% (heartbeat ${st.heartbeatSecAgo}s ago)`),
+    });
+    if (r.timedOut) fail("The running import did not finish within 90 min. Check `pm2 logs awin-cron`.");
+    freshFromCron = !r.releasedStale;
+    if (freshFromCron) log("Cron import finished.");
+  } else if (s.running) {
+    log(`Releasing a dead import lock (no heartbeat for ${Math.round(s.heartbeatSecAgo / 60)} min).`);
+    await releaseStaleLock();
+  }
+}
+
 const feedFile = await getFeedFile();
 const feed = await readFeed(feedFile);
 log(`Feed: ${feed.rows.toLocaleString("de-DE")} rows from ${feed.shops.size} shops`);
 
-if (!CHECK_ONLY) {
-  const meta = await ImportMeta.findOne({ source: "AWIN" }).lean();
-  if (meta?.isRunning) {
-    const age = Date.now() - new Date(meta.lastStarted || 0).getTime();
-    if (age < STALE_LOCK_MS) fail(`An import is running right now (started ${Math.round(age / 60000)} min ago). Try again later or use --check-only.`);
-    if (!FORCE) fail(`An import has been marked as running for ${Math.round(age / 60000)} min. If no import is running, re-run with --force.`);
-    log(`Taking over stale import lock (${Math.round(age / 60000)} min old)`);
-    await ImportMeta.updateOne({ source: "AWIN" }, { $set: { isRunning: false } });
-  }
+if (!CHECK_ONLY && freshFromCron && !IMPORT_ANYWAY) {
+  log("Skipping our own import: the cron just imported the same feed. Verifying prices…");
+} else if (!CHECK_ONLY) {
+  const again = await getLockState();
+  if (again.running && again.alive) fail("Another import started in the meantime. Run this again in a few minutes.");
   log("Importing products and prices…");
   const ti = Date.now();
   try {

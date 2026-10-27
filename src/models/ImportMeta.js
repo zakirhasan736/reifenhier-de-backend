@@ -10,6 +10,7 @@ const ImportMetaSchema = new mongoose.Schema({
     total: { type: Number, default: 0 },
     lastStarted: { type: Date },
     lastSuccess: { type: Date },
+    heartbeatAt: { type: Date }, // updated while an import runs (see importLock.js)
     progress: { type: Number, default: 0 },
     deleted: { type: Number, default: 0 },
     skipped: { type: Number, default: 0 },

@@ -12,6 +12,7 @@ import affiliateCloak from "../utils/affiliateCloak.js";
 import { getVendorPaymentIcons } from "../utils/vendorPaymentIcons.js";
 import crypto from "crypto";
 import { nextPriceTrend, recordPriceSnapshots } from "../utils/priceHistory.js";
+import { heartbeat } from "../utils/importLock.js";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
@@ -354,6 +355,7 @@ export async function importAWINCsv(filePath) {
                     updated: 0,
                     total: totalLines,
                     lastStarted: new Date(),
+                    heartbeatAt: new Date(),
                     progress: 0,
                 },
             },
@@ -380,6 +382,7 @@ export async function importAWINCsv(filePath) {
                             }
                         }
                 rowCount++;
+                if (rowCount % 20000 === 0) heartbeat();
                 importStatus.progress = Math.round((rowCount / (importStatus.total || 1)) * 100);
 
                 if (row["merchant_name"]) vendorsFound.add(row["merchant_name"].trim());
@@ -743,6 +746,7 @@ export async function importAWINCsv(filePath) {
                                 updated: importStatus.updated,
                                 skipped: importStatus.skipped,
                                 progress: Math.round(((i + batchKeys.length) / Math.max(1, groupKeys.length)) * 100),
+                                heartbeatAt: new Date(),
                             },
                         }
                     );

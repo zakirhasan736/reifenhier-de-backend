@@ -4,6 +4,8 @@
 #   bash scripts/vps-update.sh            # pull backend+frontend, rebuild, restart, sync AWIN, verify prices
 #   bash scripts/vps-update.sh sync       # only: import AWIN feed now + verify every shop's prices
 #   bash scripts/vps-update.sh check      # only: compare prices on reifexa with the AWIN feed (no import)
+#   bash scripts/vps-update.sh status     # is an AWIN import running right now?
+#   bash scripts/vps-update.sh restart-cron  # restart awin-cron, but only when it is not importing
 #   bash scripts/vps-update.sh backend    # pull + restart backend only
 #   bash scripts/vps-update.sh frontend   # pull + build + restart frontend only
 #
@@ -64,23 +66,32 @@ update_frontend() {
   fi
 }
 
-sync_awin() {
-  # Pause the 3-hourly cron so the manual import and the cron never overlap.
-  local cron_was_running=0
-  if pm2 describe awin-cron >/dev/null 2>&1; then
-    cron_was_running=1
-    say "Pausing awin-cron during the manual sync"
-    pm2 stop awin-cron >/dev/null
+import_running() {  # exit 0 if an AWIN import is running right now
+  (cd "$BACKEND" && node scripts/awin-sync-now.mjs --status) >/dev/null 2>&1
+  [ $? -eq 3 ]
+}
+
+restart_cron_when_idle() {
+  # Never restart awin-cron while it imports — that kills the import.
+  pm2 describe awin-cron >/dev/null 2>&1 || return 0
+  if import_running; then
+    warn "awin-cron is importing right now — not restarting it. It picks up the new code on its next restart:"
+    warn "  run 'bash scripts/vps-update.sh restart-cron' later."
+    return 0
   fi
+  say "Restarting awin-cron (loads new code)"
+  pm2 restart awin-cron --update-env >/dev/null
+}
+
+sync_awin() {
+  # The cron keeps running: if it is importing, the sync waits for it and
+  # then only verifies, so two imports never overlap.
   say "AWIN: import all products now and verify every shop's prices"
   set +e
   (cd "$BACKEND" && node scripts/awin-sync-now.mjs "$@")
   local code=$?
   set -e
-  if [ "$cron_was_running" = 1 ]; then
-    say "Restarting awin-cron"
-    pm2 restart awin-cron --update-env >/dev/null
-  fi
+  restart_cron_when_idle
   return $code
 }
 
@@ -93,9 +104,11 @@ case "$MODE" in
   backend)  update_backend ;;
   frontend) update_frontend ;;
   sync)     sync_awin "$@" ;;
+  status)   (cd "$BACKEND" && node scripts/awin-sync-now.mjs --status) || true ;;
+  restart-cron) restart_cron_when_idle ;;
   check)    (cd "$BACKEND" && node scripts/awin-sync-now.mjs --check-only "$@") ;;
   *)
-    echo "Usage: bash scripts/vps-update.sh [all|sync|check|backend|frontend] [--vendor NAME] [--force]"
+    echo "Usage: bash scripts/vps-update.sh [all|sync|check|status|restart-cron|backend|frontend] [--vendor NAME]"
     exit 2
     ;;
 esac
