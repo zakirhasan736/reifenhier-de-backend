@@ -6,6 +6,7 @@ import http from "http";
 import https from "https";
 import pLimit from "p-limit";
 import Product from "../../models/product.js";
+import { computeOfferStats } from "./offerPricing.js";
 
 dotenv.config();
 
@@ -35,51 +36,6 @@ axios.defaults.httpsAgent = httpsAgent;
 function priceToDisplay(num) {
     if (typeof num !== "number" || !isFinite(num) || num <= 0) return undefined;
     return `${num.toFixed(2).replace(".", ",")} €`;
-}
-
-function computeFromOffers(offers = []) {
-    const prices = offers
-        .map(o => (typeof o.price === "number" && o.price > 0 ? o.price : 0))
-        .filter(p => p > 0);
-
-    const cheapest_offer = prices.length ? Math.min(...prices) : 0;
-    const expensive_offer = prices.length ? Math.max(...prices) : 0;
-    const savings_amount =
-        expensive_offer > cheapest_offer ? +(expensive_offer - cheapest_offer).toFixed(2) : 0;
-    const savings_percent =
-        expensive_offer > cheapest_offer
-            ? `-${Math.round(((expensive_offer - cheapest_offer) / expensive_offer) * 100)}%`
-            : "0%";
-
-    const cheapestVendorOffer =
-        offers.find(o => typeof o.price === "number" && o.price === cheapest_offer) || null;
-
-    const cheapest_vendor = cheapestVendorOffer
-        ? {
-            aw_product_id: cheapestVendorOffer.aw_product_id,
-            vendor_id: cheapestVendorOffer.vendor_id,
-            vendor: cheapestVendorOffer.vendor,
-            vendor_logo: cheapestVendorOffer.vendor_logo,
-            aw_deep_link: cheapestVendorOffer.aw_deep_link,
-            payment_icons: cheapestVendorOffer.payment_icons,
-            delivery_cost: cheapestVendorOffer.delivery_cost,
-            original_affiliate_url: cheapestVendorOffer.original_affiliate_url,
-            affiliate_product_cloak_url: cheapestVendorOffer.affiliate_product_cloak_url || null,
-        }
-        : null;
-
-    return {
-        cheapest_offer,
-        expensive_offer,
-        savings_amount,
-        savings_percent,
-        search_price: cheapest_offer,
-        cheapest_price_display: priceToDisplay(cheapest_offer),
-        expensive_price_display: priceToDisplay(expensive_offer),
-        savings_badge: savings_amount > 0 ? `Spare ${savings_percent}` : undefined,
-        offer_count_display: offers.length > 1 ? `${offers.length} Angebote` : "1 Angebot",
-        cheapest_vendor,
-    };
 }
 
 function derivedChanges(prod, derived, removedOffers) {
@@ -114,92 +70,57 @@ function derivedChanges(prod, derived, removedOffers) {
 }
 
 /* -------------------------- Availability detection ---------------------- */
-function hasOutMarker(txt) {
-    const t = txt;
-    return (
-        t.includes("out of stock") ||
-        t.includes("sold out") ||
-        t.includes("currently unavailable") ||
-        t.includes("not available") ||
-        t.includes("unavailable") ||
-        t.includes("derzeit nicht verfügbar") ||
-        t.includes("nicht verfügbar") ||
-        t.includes("ausverkauft") ||
-        t.includes("momentan nicht lieferbar") ||
-        t.includes("momentan nicht verfügbar") ||
-        t.includes("temporarily unavailable") ||
-        t.includes("actuellement indisponible") ||
-        t.includes("non disponibile") ||
-        t.includes("agotado") ||
-        t.includes("sin stock")
-    );
+/**
+ * Decide whether a merchant page proves the product is gone.
+ * Returns "gone" | "available" | "unknown".
+ *
+ * Only hard evidence removes an offer: HTTP 404/410, or the page's own
+ * Product JSON-LD saying OutOfStock/Discontinued. Text markers like
+ * "nicht verfügbar" appear on almost every shop page (other sizes, payment
+ * methods, cookie banners) and blocked/timeout requests prove nothing —
+ * AWIN's own in_stock flag is the stock source of truth.
+ */
+function classifyPage(html, status) {
+    if (status === 404 || status === 410) return "gone";
+    if (!status || status >= 400 || !html) return "unknown";
+    const av = extractProductAvailabilities(html.toLowerCase());
+    if (!av.length) return "unknown";
+    if (av.every(v => v.includes("outofstock") || v.includes("discontinued") || v.includes("soldout"))) {
+        return "gone";
+    }
+    return "available";
 }
-function hasInMarker(txt) {
-    const t = txt;
-    return (
-        t.includes("in stock") ||
-        t.includes("available") ||
-        t.includes("auf lager") ||
-        t.includes("verfügbar") ||
-        t.includes("lieferbar") ||
-        t.includes("sofort lieferbar") ||
-        t.includes("en stock") ||
-        t.includes("disponibile") ||
-        t.includes("disponible")
-    );
-}
-function extractJsonLdAvailabilities(html) {
+
+/** availability of the page's main Product offers only (not related products). */
+function extractProductAvailabilities(html) {
     const out = [];
     const rx = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
     let m;
+    const products = [];
     while ((m = rx.exec(html))) {
         try {
             const json = JSON.parse(m[1].trim());
-            scan(json);
+            const stack = [json];
+            while (stack.length) {
+                const n = stack.pop();
+                if (!n || typeof n !== "object") continue;
+                if (Array.isArray(n)) { stack.push(...n); continue; }
+                if (n["@graph"]) stack.push(n["@graph"]);
+                const t = [].concat(n["@type"] || []).map(String);
+                if (t.includes("product")) products.push(n);
+            }
         } catch { }
     }
+    if (products.length !== 1) return out; // listing / ambiguous page → unknown
+    const offers = [].concat(products[0].offers || []);
+    for (const o of offers) {
+        if (o && o.availability) out.push(String(o.availability));
+        for (const sub of [].concat(o?.offers || [])) if (sub?.availability) out.push(String(sub.availability));
+    }
     return out;
-    function scan(node) {
-        if (!node) return;
-        if (Array.isArray(node)) return node.forEach(scan);
-        if (typeof node === "object") {
-            if (node["@type"] === "Offer" || node["@type"] === "AggregateOffer") {
-                if (node.availability) out.push(String(node.availability).toLowerCase());
-            }
-            if (node["@type"] === "Product" && node.offers) scan(node.offers);
-            for (const k in node) {
-                if (k === "availability") out.push(String(node[k]).toLowerCase());
-                else scan(node[k]);
-            }
-        }
-    }
 }
-function detectFromHtml(html, status) {
-    if (!status || status >= 400) return false;
-    const low = html.toLowerCase();
-    const av = extractJsonLdAvailabilities(low);
-    if (av.some(v => v.includes("outofstock") || v.includes("discontinued"))) return false;
-    if (av.some(v => v.includes("instock") || v.includes("in stock") || v.includes("available"))) return true;
-    if (hasOutMarker(low)) return false;
-    if (hasInMarker(low)) return true;
-    if (low.includes("captcha") || low.includes("access denied")) {
-        return AGGRESSIVE_UNKNOWN ? false : true;
-    }
-    return AGGRESSIVE_UNKNOWN ? false : true;
-}
-async function headOnly(url) {
-    try {
-        const r = await axios.head(url, {
-            timeout: HEAD_TIMEOUT_MS,
-            maxRedirects: MAX_REDIRECTS,
-            validateStatus: s => s >= 200 && s < 400,
-        });
-        return r.status;
-    } catch {
-        return 0;
-    }
-}
-async function getLite(url) {
+
+async function getStatus(url) {
     try {
         const r = await axios.get(url, {
             timeout: GET_TIMEOUT_MS,
@@ -207,25 +128,24 @@ async function getLite(url) {
             maxContentLength: MAX_HTML_BYTES,
             headers: {
                 "User-Agent":
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
                 Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "de-DE,de;q=0.9",
             },
             responseType: "text",
             decompress: true,
-            validateStatus: s => s >= 200 && s < 400,
+            validateStatus: () => true,
         });
-        const status = r.status;
-        const html = typeof r.data === "string" ? r.data : "";
-        return { status, html };
+        return { status: r.status, html: typeof r.data === "string" ? r.data : "" };
     } catch {
         return { status: 0, html: "" };
     }
 }
 
 /* ------------------------- URL availability checker --------------------- */
-const urlCache = new Map(); // url -> boolean
+const urlCache = new Map(); // url -> "gone" | "available" | "unknown"
 function setCache(url, val) {
-    urlCache.set(url, !!val);
+    urlCache.set(url, val);
     if (urlCache.size > CACHE_MAX) {
         const drop = Math.ceil(CACHE_MAX * 0.1);
         let i = 0;
@@ -236,23 +156,22 @@ function setCache(url, val) {
     }
 }
 function getCache(url) {
-    return urlCache.has(url) ? urlCache.get(url) : undefined;
+    return urlCache.get(url);
 }
-async function checkUrlAvailable(url) {
-    if (!/^https?:\/\//i.test(String(url || ""))) return false;
+async function checkUrl(url) {
+    if (!/^https?:\/\//i.test(String(url || ""))) return "unknown";
     const cached = getCache(url);
-    if (typeof cached === "boolean") return cached;
-
-    const hs = await headOnly(url);
-    if (hs >= 400 || hs === 0) {
-        setCache(url, false);
-        return false;
+    if (cached) return cached;
+    const { status, html } = await getStatus(url);
+    const state = classifyPage(html, status);
+    if (state === "gone" || state === "unknown") {
+        // treat "unknown" aggressively only when explicitly asked to
+        const result = state === "unknown" && AGGRESSIVE_UNKNOWN ? "gone" : state;
+        setCache(url, result);
+        return result;
     }
-
-    const { status, html } = await getLite(url);
-    const ok = detectFromHtml(html, status);
-    setCache(url, ok);
-    return ok;
+    setCache(url, state);
+    return state;
 }
 
 /* ------------------------------ DB plumbing ----------------------------- */
@@ -307,8 +226,7 @@ async function processBatch(products) {
     await Promise.all(
         entries.map(([url]) =>
             limitURL(async () => {
-                const available = await checkUrlAvailable(url);
-                setCache(url, available);
+                await checkUrl(url);
             })
         )
     );
@@ -330,22 +248,23 @@ async function processBatch(products) {
                 const kept = [];
                 for (let i = 0; i < original.length; i++) {
                     const url = String(original[i].merchant_deep_link || "").trim();
-                    const ok = getCache(url);
-                    if (ok) kept.push(original[i]);
+                    // keep unless the merchant page proves the product is gone
+                    if (getCache(url) !== "gone") kept.push(original[i]);
                 }
 
                 const removedCount = original.length - kept.length;
                 offersRemoved += Math.max(0, removedCount);
 
                 if (kept.length === 0) {
-                    // No available vendors left -> delete product
+                    // Every vendor page returned 404/410 or OutOfStock. Products come
+                    // back with the next AWIN import if the feed still lists them.
                     deleted += 1;
                     toDeleteIds.push(prod._id);
                     return;
                 }
 
-                // Recompute pricing fields from kept offers
-                const derived = computeFromOffers(kept);
+                // Recompute pricing fields from kept offers (shared logic)
+                const derived = computeOfferStats(kept.map(o => ({ ...o })));
                 const { hasChanges, nextProductUrl } = derivedChanges(prod, derived, removedCount);
 
                 if (!hasChanges) {
@@ -354,7 +273,7 @@ async function processBatch(products) {
                 }
 
                 const set = {
-                    offers: kept,
+                    offers: derived.offers,
                     cheapest_offer: derived.cheapest_offer,
                     expensive_offer: derived.expensive_offer,
                     savings_amount: derived.savings_amount,
