@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import {
+import { getSeoLandings,
      productLists,
      productSitemapSlugs,
       // getProductsBySession,
@@ -41,6 +41,7 @@ router.put('/sessions-settings', updateFeaturedSettings);
 router.get("/filter-tyres", GetFilterTyres);
 router.get("/suggestions", getSearchSuggestions);
 router.get("/google-merchant-feed.xml", googleMerchantFeed);
+router.get("/seo-landings", getSeoLandings);
 
 // Keep this last so it does not swallow concrete routes.
 router.get("/:slug", getProductDetails);
