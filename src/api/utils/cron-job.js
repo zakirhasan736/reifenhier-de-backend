@@ -6,8 +6,6 @@
  */
 
 import cron from "node-cron";
-import fetch from "node-fetch";
-import AdmZip from "adm-zip";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -17,7 +15,7 @@ import ImportMeta from "../../models/ImportMeta.js";
 import Product from "../../models/product.js";
 import { importAWINCsv } from "../product/importAWINCsv.js";
 import { getLockState, lockState, releaseStaleLock } from "./importLock.js";
-import zlib from "zlib";
+import { downloadAwinFeed } from "./awinFeedDownload.js";
 import { spawn } from "child_process";
 
 dotenv.config();
@@ -27,7 +25,6 @@ const MONGO_URI = process.env.MONGODB_URI;
 
 const RETRY_DELAY_MS = 2 * 60 * 1000;
 const SUCCESS_DELAY_MS = Number(process.env.AWIN_IMPORT_INTERVAL_MIN || 180) * 60 * 1000; // 3h between full imports
-const DOWNLOAD_TIMEOUT_MS = Number(process.env.AWIN_DOWNLOAD_TIMEOUT_MS || 15 * 60 * 1000);
 const IMPORT_TIMEOUT_MS = Number(process.env.AWIN_IMPORT_TIMEOUT_MS || 3 * 60 * 60 * 1000);
 const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
 
@@ -143,39 +140,20 @@ async function attemptCsvImport() {
         console.log("🚀 [STEP 1] Downloading and importing AWIN feed...");
         const cidMatch = AWIN_CSV_URL.match(/\/cid\/(\d+)/);
         if (cidMatch) console.log(`[AWIN] Feed campaign cid=${cidMatch[1]}`);
-        // Download with a hard timeout — a hung request used to block the cron forever.
-        const ctrl = new AbortController();
-        const dlTimer = setTimeout(() => ctrl.abort(), DOWNLOAD_TIMEOUT_MS);
-        let buffer;
-        try {
-            const res = await fetch(AWIN_CSV_URL, { signal: ctrl.signal });
-            if (!res.ok) throw new Error(`AWIN CSV fetch failed: ${res.status} ${res.statusText}`);
-            buffer = Buffer.from(await res.arrayBuffer());
-        } finally {
-            clearTimeout(dlTimer);
-        }
-
-        // AWIN can deliver zip, gzip or plain CSV depending on the feed URL.
-        let csvBuffer;
-        if (buffer.slice(0, 2).toString() === "PK") {
-            const zip = new AdmZip(buffer);
-            const csvEntry = zip.getEntries().find((e) => /\.csv$/i.test(e.entryName));
-            if (!csvEntry) throw new Error("CSV not found in ZIP");
-            csvBuffer = zip.readFile(csvEntry);
-        } else if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
-            csvBuffer = zlib.gunzipSync(buffer);
-        } else {
-            csvBuffer = buffer;
-        }
-        const headerLine = csvBuffer.slice(0, 2000).toString("utf8").split(/\r?\n/)[0] || "";
+        // Shop by shop (unchanged shops come from the cache), with retries;
+        // falls back to one full download if the AWIN feed list is unavailable.
+        const dl = await downloadAwinFeed(AWIN_CSV_URL, { outDir: TEMP_DIR, log: (m) => console.log(m) });
+        const tmpPath = dl.file;
+        const head = Buffer.alloc(4000);
+        const hfd = fs.openSync(tmpPath, "r");
+        fs.readSync(hfd, head, 0, 4000, 0);
+        fs.closeSync(hfd);
+        const headerLine = head.toString("utf8").split(/\r?\n/)[0] || "";
         if (!/aw_deep_link/.test(headerLine) || !/merchant_name/.test(headerLine)) {
             throw new Error(`AWIN feed has unexpected columns (got: ${headerLine.slice(0, 200)})`);
         }
-
-        const tmpPath = path.join(TEMP_DIR, `awin-${Date.now()}.csv`);
-        fs.writeFileSync(tmpPath, csvBuffer);
-        const mb = (csvBuffer.length / 1024 / 1024).toFixed(1);
-        console.log(`[STEP 1] CSV extracted (${mb} MB) → ${tmpPath}`);
+        const mb = (fs.statSync(tmpPath).size / 1024 / 1024).toFixed(1);
+        console.log(`[STEP 1] Feed ready (${dl.mode}, ${mb} MB) → ${tmpPath}`);
 
         // A manual sync may have started while we were downloading.
         const lockNow = await getLockState();
