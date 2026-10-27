@@ -38,6 +38,8 @@ const ProductSchema = new mongoose.Schema({
   ean: { type: String, required: true, unique: true },
   // fingerprint of the last imported AWIN data — unchanged products are skipped
   import_hash: { type: String },
+  // compact best-price series for sparklines: { points: [[YYYY-MM-DD, price]], updated_at }
+  price_trend: { type: mongoose.Schema.Types.Mixed },
   aw_product_id: String,
   merchant_product_id: String,
   product_name: String,
