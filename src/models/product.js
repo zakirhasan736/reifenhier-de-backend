@@ -26,6 +26,11 @@ const OfferSchema = new mongoose.Schema({
   merchant_deep_link: String,
   product_category: String,
   in_stock: Boolean,
+  aw_product_id: String,
+  // merchant-page verification (refreshPricesFromMerchants)
+  merchant_price: Number,
+  merchant_price_checked_at: Date,
+  price_mismatch: Boolean,
 }, { _id: false });
  
 // Main Product schema
@@ -80,6 +85,7 @@ const ProductSchema = new mongoose.Schema({
     delivery_cost: String,
     payment_icons: [String],
     price: Number,
+    in_stock: Boolean,
     aw_product_id: String,
   },
   base_price: String,

@@ -1,6 +1,7 @@
 /**
  * Offer helpers for AWIN CSV import.
  */
+import { pickRowPrice } from "./offerPricing.js";
 
 export function normalizeVendorKey(offerOrRow) {
   const id = String(offerOrRow.vendor_id || offerOrRow.merchant_id || "").trim();
@@ -19,29 +20,28 @@ export function hasAwinAffiliateLink(row) {
 }
 
 /**
- * Keep one offer per merchant — lowest price wins; prefer in-stock on tie.
+ * Keep one offer per merchant: an in-stock row beats an out-of-stock one,
+ * then the lowest positive price wins.
  */
 export function dedupeOffers(offers = []) {
   const byVendor = new Map();
+
+  const better = (a, b) => {
+    const aStock = a.in_stock !== false;
+    const bStock = b.in_stock !== false;
+    if (aStock !== bStock) return aStock;
+    const pa = Number(a.price) || 0;
+    const pb = Number(b.price) || 0;
+    if (pa > 0 && pb <= 0) return true;
+    if (pa <= 0) return false;
+    return pa < pb;
+  };
 
   for (const offer of offers) {
     if (!offer?.vendor && !offer?.vendor_id) continue;
     const key = normalizeVendorKey(offer);
     const prev = byVendor.get(key);
-    if (!prev) {
-      byVendor.set(key, offer);
-      continue;
-    }
-
-    const price = Number(offer.price) || 0;
-    const prevPrice = Number(prev.price) || 0;
-    const betterPrice = price > 0 && (prevPrice === 0 || price < prevPrice);
-    const samePricePreferStock =
-      price === prevPrice && offer.in_stock && !prev.in_stock;
-
-    if (betterPrice || samePricePreferStock) {
-      byVendor.set(key, offer);
-    }
+    if (!prev || better(offer, prev)) byVendor.set(key, offer);
   }
 
   return Array.from(byVendor.values());
@@ -148,20 +148,9 @@ export function collectFeedImages(rows = [], masterRow = {}) {
   return urls;
 }
 
+/** Selling price of a feed row (never the per-unit base price). */
 export function pickOfferPrice(row = {}) {
-  const candidates = [
-    row.search_price,
-    row.display_price,
-    row.store_price,
-    row.base_price_amount,
-    row.base_price,
-  ];
-  for (const val of candidates) {
-    if (val === null || val === undefined || val === "") continue;
-    const n = parseFloat(String(val).replace(",", "."));
-    if (Number.isFinite(n) && n > 0) return n;
-  }
-  return 0;
+  return pickRowPrice(row);
 }
 
 export function pickDescription(rows = [], fallback = "") {

@@ -11,6 +11,14 @@ import { detectCsvSeparator, csvSeparatorFromFeedUrl } from "./awinCsv.js";
 import Product from "../../models/product.js";
 import ImportMeta from "../../models/ImportMeta.js";
 import affiliateCloak from "./affiliateCloak.js";
+import {
+    pickRowPrice,
+    parseInStock,
+    computeOfferStats,
+    dropOutOfStockWhenAlternatives,
+    getFeedProductKey,
+} from "./offerPricing.js";
+import { hasAwinAffiliateLink } from "./offerUtils.js";
 
 dotenv.config();
 
@@ -28,88 +36,6 @@ const TIMEOUT_MS = Number(process.env.FEED_HTTP_TIMEOUT_MS || 180000); // ZIP do
 function normalizeEAN(ean) {
     if (!ean) return "";
     return String(ean).trim().replace(/^0+/, "");
-}
-
-function parseSafeNumber(val) {
-    if (val === null || val === undefined || val === "") return undefined;
-    const n = parseFloat(String(val).replace(",", "."));
-    return Number.isFinite(n) ? n : undefined;
-}
-
-function recomputeOfferSavings(offers) {
-    const prices = offers.map(o => Number(o.price)).filter(p => p > 0 && Number.isFinite(p));
-    const max = prices.length ? Math.max(...prices) : 0;
-
-    if (!max) {
-        for (const o of offers) {
-            o.savings_amount = 0;
-            o.savings_percent = "0%";
-        }
-        return;
-    }
-
-    for (const o of offers) {
-        const p = Number(o.price) || 0;
-        const savings_amount = Math.max(0, max - p);
-        o.savings_amount = +savings_amount.toFixed(2);
-        o.savings_percent = savings_amount > 0 ? `-${Math.round((savings_amount / max) * 100)}%` : "0%";
-    }
-}
-
-function recomputeProductStats(productDoc) {
-    const offers = Array.isArray(productDoc.offers) ? productDoc.offers : [];
-    const numeric = offers.map(o => Number(o.price)).filter(p => p > 0 && Number.isFinite(p));
-
-    const stats = {
-        cheapest_offer: 0,
-        expensive_offer: 0,
-        search_price: 0,
-        savings_amount: 0,
-        savings_percent: "0%",
-        cheapest_vendor: null,
-        total_offers: offers.length,
-        cheapest_price_display: undefined,
-        expensive_price_display: undefined,
-        savings_badge: undefined,
-    };
-
-    if (!numeric.length) return stats;
-
-    const cheapest = Math.min(...numeric);
-    const expensive = Math.max(...numeric);
-    const savings_amount = +(Math.max(0, expensive - cheapest)).toFixed(2);
-    const savings_percent = savings_amount > 0 ? `-${Math.round((savings_amount / expensive) * 100)}%` : "0%";
-
-    const cheapestOffer = offers.find(o => Number(o.price) === cheapest) || null;
-
-    stats.cheapest_offer = cheapest;
-    stats.expensive_offer = expensive;
-    stats.search_price = cheapest;
-    stats.savings_amount = savings_amount;
-    stats.savings_percent = savings_percent;
-    stats.cheapest_vendor = cheapestOffer
-        ? {
-            aw_product_id: cheapestOffer.aw_product_id,
-            vendor_id: cheapestOffer.vendor_id,
-            vendor: cheapestOffer.vendor,
-            vendor_logo: cheapestOffer.vendor_logo,
-            price: cheapestOffer.price,
-            aw_deep_link: cheapestOffer.aw_deep_link,
-            payment_icons: cheapestOffer.payment_icons,
-            delivery_cost: cheapestOffer.delivery_cost,
-            original_affiliate_url: cheapestOffer.original_affiliate_url,
-            affiliate_product_cloak_url: cheapestOffer.original_affiliate_url
-                ? affiliateCloak.encodeAffiliateUrl(cheapestOffer.original_affiliate_url)
-                : null,
-        }
-        : null;
-
-    // Presentational fields
-    stats.cheapest_price_display = cheapest ? `${cheapest.toFixed(2).replace(".", ",")} €` : undefined;
-    stats.expensive_price_display = expensive ? `${expensive.toFixed(2).replace(".", ",")} €` : undefined;
-    stats.savings_badge = savings_amount > 0 ? `Spare ${savings_percent}` : undefined;
-
-    return stats;
 }
 
 function nearlyEqual(a = 0, b = 0, eps = PRICE_EPS) {
@@ -147,108 +73,97 @@ async function getCsvReadableStream() {
 }
 
 /* ---------------- Core: process groups ---------------- */
+/** Best row per vendor for one EAN: in stock first, then lowest price. */
+function bestRowPerVendor(rows) {
+    const byVendor = new Map();
+    for (const r of rows) {
+        const price = pickRowPrice(r);
+        if (!(price > 0) || !hasAwinAffiliateLink(r)) continue;
+        const rec = {
+            vendor_id: String(r.merchant_id || "").trim(),
+            vendor: String(r.merchant_name || "").trim(),
+            price,
+            in_stock: parseInStock(r.in_stock),
+            delivery_cost: r.delivery_cost,
+            delivery_time: r.delivery_time,
+            aw_product_id: r.aw_product_id,
+            aw_deep_link: r.aw_deep_link,
+            merchant_deep_link: r.merchant_deep_link,
+        };
+        const key = rec.vendor_id ? `id:${rec.vendor_id}` : `name:${rec.vendor.toLowerCase()}`;
+        const prev = byVendor.get(key);
+        const better =
+            !prev ||
+            (rec.in_stock && !prev.in_stock) ||
+            (rec.in_stock === prev.in_stock && rec.price < prev.price);
+        if (better) byVendor.set(key, rec);
+    }
+    return [...byVendor.values()];
+}
+
 async function processGroupBatch(eanToRowsMap, counters) {
     const eans = Array.from(eanToRowsMap.keys());
     if (!eans.length) return;
 
-    // Fetch products in one query
-    const docs = await LiveProduct.find(
-        { ean: { $in: eans } },
-        { ean: 1, offers: 1 } // minimal fields needed
-    ).lean();
-
+    const docs = await LiveProduct.find({ ean: { $in: eans } }, { ean: 1, offers: 1 }).lean();
     const dbByEan = new Map(docs.map(d => [normalizeEAN(d.ean), d]));
     const bulk = [];
 
     for (const ean of eans) {
+        counters.processed++;
         const doc = dbByEan.get(ean);
         if (!doc) {
             counters.skipped++;
-            counters.processed++;
-            continue; // product not in DB → skip (this script does not insert)
+            continue; // new products are added by the full import only
         }
 
-        const rows = eanToRowsMap.get(ean) || [];
-        // Build a quick view of new vendor prices by vendor_id (preferred) and fallback by merchant_name
-        const incoming = rows.map(r => ({
-            vendor_id: String(r.merchant_id || r.vendor_id || "").trim(),
-            vendor: String(r.merchant_name || r.vendor || "").trim(),
-            price: parseSafeNumber(r.search_price) || parseSafeNumber(r.display_price) || parseSafeNumber(r.store_price),
-            delivery_cost: r.delivery_cost,
-            delivery_time: r.delivery_time,
-            aw_product_id: r.aw_product_id,
-        })).filter(x => x.price && x.price > 0);
-
-        // Map existing offers
-        const offers = Array.isArray(doc.offers) ? [...doc.offers] : [];
+        const incoming = bestRowPerVendor(eanToRowsMap.get(ean) || []);
+        const offers = Array.isArray(doc.offers) ? doc.offers.map(o => ({ ...o })) : [];
         const byVendorId = new Map(offers.map(o => [String(o.vendor_id || "").trim(), o]));
         const byVendorName = new Map(offers.map(o => [String(o.vendor || "").trim().toLowerCase(), o]));
 
-        let offerPriceChanges = 0;
-
-        // Update only vendors that already exist on this product
+        let changes = 0;
         for (const rec of incoming) {
-            let target = null;
-            if (rec.vendor_id && byVendorId.has(rec.vendor_id)) {
-                target = byVendorId.get(rec.vendor_id);
-            } else if (rec.vendor && byVendorName.has(rec.vendor.toLowerCase())) {
-                target = byVendorName.get(rec.vendor.toLowerCase());
+            const target =
+                (rec.vendor_id && byVendorId.get(rec.vendor_id)) ||
+                byVendorName.get(rec.vendor.toLowerCase());
+            if (!target) continue; // new vendors are added by the full import
+
+            if (!nearlyEqual(Number(target.price) || 0, rec.price)) {
+                target.price = rec.price;
+                changes++;
             }
-            if (!target) continue; // ignore new vendors in quick pass
-
-            const oldPrice = Number(target.price) || 0;
-            const newPrice = Number(rec.price) || 0;
-
-            if (!nearlyEqual(oldPrice, newPrice)) {
-                target.price = newPrice;
-                offerPriceChanges++;
+            if ((target.in_stock !== false) !== rec.in_stock) {
+                target.in_stock = rec.in_stock;
+                changes++;
             }
-
-            // Optionally keep delivery info fresh
+            // Keep the AWIN link pointing at the product this price belongs to.
+            if (rec.aw_deep_link && rec.aw_deep_link !== target.original_affiliate_url) {
+                target.original_affiliate_url = rec.aw_deep_link;
+                target.affiliate_product_cloak_url = affiliateCloak.encodeAffiliateUrl(rec.aw_deep_link);
+                target.aw_product_id = rec.aw_product_id || target.aw_product_id;
+                target.aw_deep_link = `/go/${target.aw_product_id}?from=reifendb`;
+                changes++;
+            }
+            if (rec.merchant_deep_link) target.merchant_deep_link = rec.merchant_deep_link;
             if (rec.delivery_cost !== undefined) target.delivery_cost = rec.delivery_cost;
             if (rec.delivery_time !== undefined) target.delivery_time = rec.delivery_time;
         }
 
-        if (offerPriceChanges === 0) {
+        if (!changes) {
             counters.skipped++;
-            counters.processed++;
             continue;
         }
 
-        // Recompute savings at offer level, then recompute product stats
-        recomputeOfferSavings(offers);
-        const stats = recomputeProductStats({ offers });
-
-        // Prepare bulk update (set offers + top-level price metrics)
-        bulk.push({
-            updateOne: {
-                filter: { _id: doc._id },
-                update: {
-                    $set: {
-                        offers,
-                        cheapest_offer: stats.cheapest_offer,
-                        expensive_offer: stats.expensive_offer,
-                        search_price: stats.search_price,
-                        savings_amount: stats.savings_amount,
-                        savings_percent: stats.savings_percent,
-                        cheapest_vendor: stats.cheapest_vendor,
-                        total_offers: stats.total_offers,
-                        cheapest_price_display: stats.cheapest_price_display,
-                        expensive_price_display: stats.expensive_price_display,
-                        savings_badge: stats.savings_badge,
-                    },
-                },
-            },
-        });
+        const kept = dropOutOfStockWhenAlternatives(offers);
+        const stats = computeOfferStats(kept);
+        bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { ...stats, last_price_synced_at: new Date() } } } });
 
         counters.updated++;
-        counters.offersUpdated += offerPriceChanges;
-        counters.processed++;
-
+        counters.offersUpdated += changes;
         if (counters.processed % PRINT_EVERY === 0) {
-            const left = Math.max(0, counters.seenProducts - counters.processed);
             console.log(
-                `Updated: ${counters.updated}  Skipped: ${counters.skipped}  OffersUpdated: ${counters.offersUpdated}  Left: ${left}`
+                `Updated: ${counters.updated}  Skipped: ${counters.skipped}  OffersUpdated: ${counters.offersUpdated}  Left: ${Math.max(0, counters.seenProducts - counters.processed)}`
             );
         }
     }
@@ -259,7 +174,6 @@ async function processGroupBatch(eanToRowsMap, counters) {
 /* ---------------- Main ---------------- */
 async function main() {
     try {
-        // Do not run if the full AWIN import is currently running
         const meta = await ImportMeta.findOne({ source: "AWIN" }).lean();
         if (meta?.isRunning) {
             console.log("⏭️  Skipping quick price update: full AWIN import is running.");
@@ -272,74 +186,46 @@ async function main() {
             csvSeparatorFromFeedUrl(process.env.AWIN_CSV_URL || FEED_URL) ||
             (FEED_PATH ? detectCsvSeparator(FEED_PATH) : ",");
 
-        const counters = {
-            rows: 0,
-            seenProducts: 0, // unique EANs encountered
-            processed: 0,    // unique EANs flushed/processed
-            updated: 0,
-            skipped: 0,
-            offersUpdated: 0,
-        };
+        const counters = { rows: 0, seenProducts: 0, processed: 0, updated: 0, skipped: 0, offersUpdated: 0 };
 
-        // EAN -> array of minimal rows
+        // Read the whole feed first: rows for one EAN can be anywhere in the file,
+        // and flushing mid-stream raced with parsing and split vendors across writes.
         const eanMap = new Map();
-
-        const flushIfNeeded = async (force = false) => {
-            if (!force && eanMap.size < GROUP_SIZE) return;
-            const toFlush = new Map(eanMap);
-            eanMap.clear();
-            await processGroupBatch(toFlush, counters);
-        };
-
         await new Promise((resolve, reject) => {
             stream
                 .pipe(csv({ separator: csvSeparator }))
                 .on("data", (row) => {
                     counters.rows++;
-
-                    // Only the minimal fields needed for price refresh
-                    const ean = normalizeEAN(row["ean"]);
+                    const ean = getFeedProductKey(row); // same key as the full import
                     if (!ean) return;
-
-                    // track unique EANs seen so far
-                    if (!eanMap.has(ean)) counters.seenProducts++;
-
-                    const r = {
-                        ean,
+                    if (!eanMap.has(ean)) {
+                        eanMap.set(ean, []);
+                        counters.seenProducts++;
+                    }
+                    eanMap.get(ean).push({
                         aw_product_id: row["aw_product_id"],
+                        aw_deep_link: row["aw_deep_link"],
+                        merchant_deep_link: row["merchant_deep_link"],
                         merchant_id: row["merchant_id"],
                         merchant_name: row["merchant_name"],
                         search_price: row["search_price"],
                         display_price: row["display_price"],
                         store_price: row["store_price"],
+                        in_stock: row["in_stock"],
                         delivery_cost: row["delivery_cost"],
                         delivery_time: row["delivery_time"],
-                    };
-
-                    const arr = eanMap.get(ean) || [];
-                    arr.push(r);
-                    eanMap.set(ean, arr);
-
-                    if (eanMap.size >= GROUP_SIZE) {
-                        // backpressure: pause stream, flush, then resume
-                        stream.pause();
-                        flushIfNeeded(true)
-                            .then(() => stream.resume())
-                            .catch(reject);
-                    }
+                    });
                 })
-                .on("end", async () => {
-                    try {
-                        await flushIfNeeded(true);
-                        resolve();
-                    } catch (e) {
-                        reject(e);
-                    }
-                })
+                .on("end", resolve)
                 .on("error", reject);
         });
 
-        // Final print
+        const keys = [...eanMap.keys()];
+        for (let i = 0; i < keys.length; i += GROUP_SIZE) {
+            const group = new Map(keys.slice(i, i + GROUP_SIZE).map(k => [k, eanMap.get(k)]));
+            await processGroupBatch(group, counters);
+        }
+
         console.log(
             `✅ Done. Updated: ${counters.updated}  Skipped: ${counters.skipped}  OffersUpdated: ${counters.offersUpdated}  ProductsProcessed: ${counters.processed}  RowsRead: ${counters.rows}`
         );

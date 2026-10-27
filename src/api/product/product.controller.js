@@ -53,6 +53,8 @@ export const productLists = async (req, res) => {
             ...(req.query.noise && { noise_class: { $in: toArray(req.query.noise) } }),
             ...(req.query.fuelClass && { fuel_class: { $in: toArray(req.query.fuelClass) } }),
             ...(req.query.wetGrip && { wet_grip: { $in: toArray(req.query.wetGrip) } }),
+            // landing pages: only products that currently have a price
+            ...(req.query.priced && { cheapest_offer: { $gt: 0 } }),
         };
 
         // ---- Apply price range to either search_price or main_price ----
@@ -314,7 +316,12 @@ function toNumericPrice(value) {
 }
 
 function sortOffersByPrice(offers = []) {
-    return [...offers].sort((a, b) => toNumericPrice(a?.price) - toNumericPrice(b?.price));
+    // In-stock vendors first, then cheapest — same order as the import.
+    return [...offers].sort(
+        (a, b) =>
+            Number(a?.in_stock === false) - Number(b?.in_stock === false) ||
+            toNumericPrice(a?.price) - toNumericPrice(b?.price)
+    );
 }
 
 function liveOfferStats(offers = []) {
@@ -323,16 +330,17 @@ function liveOfferStats(offers = []) {
         price: toNumericPrice(o.price),
     })).filter((o) => o.price > 0);
     const prices = sorted.map((o) => o.price);
-    const cheapest = prices.length ? Math.min(...prices) : 0;
+    // "Best price" = first offer after sorting (cheapest vendor that delivers)
+    const cheapestOffer = sorted[0] || null;
+    const cheapest = cheapestOffer ? cheapestOffer.price : 0;
     const expensive = prices.length ? Math.max(...prices) : 0;
-    const cheapestOffer = sorted.find((o) => o.price === cheapest) || null;
     const savings_percent =
-        expensive > cheapest && expensive > 0
+        expensive > cheapest && cheapest > 0
             ? `-${Math.round(((expensive - cheapest) / expensive) * 100)}%`
             : "0%";
     return { sorted, cheapest, expensive, cheapestOffer, savings_percent };
-}  
-  
+}
+
 export const getProductDetails = async (req, res) => {
     const { slug } = req.params;
 
@@ -1318,5 +1326,65 @@ export const uploadCsv = async (req, res) => {
         res.json({ success: true, message: "CSV accepted and importing in background" });
     } catch (err) {
         res.status(500).json({ error: err.message || "Import failed" });
+    }
+};
+/**
+ * SEO landing-page index: every tyre size, brand and season that has
+ * products, with counts and lowest price. Feeds /reifen/[size],
+ * /marken/[brand], season pages, internal links and sitemaps.
+ * GET /api/products/seo-landings
+ */
+let seoLandingCache = { at: 0, data: null };
+export const getSeoLandings = async (req, res) => {
+    try {
+        const maxAge = 30 * 60 * 1000;
+        if (seoLandingCache.data && Date.now() - seoLandingCache.at < maxAge) {
+            res.set("Cache-Control", "public, max-age=900");
+            return res.json(seoLandingCache.data);
+        }
+        const priced = { cheapest_offer: { $gt: 0 } };
+        const [sizes, brands, seasons, brandSizes] = await Promise.all([
+            Product.aggregate([
+                { $match: { ...priced, width: { $nin: [null, ""] }, height: { $nin: [null, ""] }, diameter: { $nin: [null, ""] } } },
+                { $group: { _id: { w: "$width", h: "$height", d: "$diameter" }, count: { $sum: 1 }, minPrice: { $min: "$cheapest_offer" }, updatedAt: { $max: "$updatedAt" } } },
+                { $sort: { count: -1 } },
+            ]),
+            Product.aggregate([
+                { $match: { ...priced, brand_name: { $nin: [null, ""] } } },
+                { $group: { _id: "$brand_name", count: { $sum: 1 }, minPrice: { $min: "$cheapest_offer" }, updatedAt: { $max: "$updatedAt" } } },
+                { $sort: { count: -1 } },
+            ]),
+            Product.aggregate([
+                { $match: { ...priced, merchant_product_third_category: { $nin: [null, ""] } } },
+                { $group: { _id: "$merchant_product_third_category", count: { $sum: 1 }, minPrice: { $min: "$cheapest_offer" } } },
+                { $sort: { count: -1 } },
+            ]),
+            // top sizes per brand, for "Continental 205/55 R16"-style internal links
+            Product.aggregate([
+                { $match: { ...priced, brand_name: { $nin: [null, ""] }, width: { $nin: [null, ""] } } },
+                { $group: { _id: { b: "$brand_name", w: "$width", h: "$height", d: "$diameter" }, count: { $sum: 1 } } },
+                { $sort: { count: -1 } },
+                { $limit: 3000 },
+            ]),
+        ]);
+
+        const data = {
+            generatedAt: new Date(),
+            sizes: sizes.map((s) => ({
+                width: String(s._id.w), height: String(s._id.h), diameter: String(s._id.d),
+                count: s.count, minPrice: s.minPrice, updatedAt: s.updatedAt,
+            })),
+            brands: brands.map((b) => ({ name: b._id, count: b.count, minPrice: b.minPrice, updatedAt: b.updatedAt })),
+            seasons: seasons.map((s) => ({ name: s._id, count: s.count, minPrice: s.minPrice })),
+            brandSizes: brandSizes.map((x) => ({
+                brand: x._id.b, width: String(x._id.w), height: String(x._id.h), diameter: String(x._id.d), count: x.count,
+            })),
+        };
+        seoLandingCache = { at: Date.now(), data };
+        res.set("Cache-Control", "public, max-age=900");
+        return res.json(data);
+    } catch (err) {
+        console.error("getSeoLandings failed:", err);
+        return res.status(500).json({ message: "Failed to build SEO landings" });
     }
 };

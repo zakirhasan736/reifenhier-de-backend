@@ -26,6 +26,13 @@ import {
     pickReviewFields,
     pickTyreLabelFields,
 } from "../utils/offerUtils.js";
+import {
+    parsePrice,
+    parseInStock,
+    computeOfferStats,
+    dropOutOfStockWhenAlternatives,
+    getFeedProductKey,
+} from "../utils/offerPricing.js";
 
 dotenv.config();
 
@@ -72,10 +79,8 @@ function normalizeEAN(ean) {
     return ean.trim().replace(/^0+/, "");
 }
 function parseSafeNumber(val) {
-    if (!val && val !== 0) return undefined;
-    const normalized = String(val).replace(",", ".").trim();
-    const num = parseFloat(normalized);
-    return isNaN(num) ? undefined : num;
+    // "1.234,56" used to become 1.234 — use the shared EU-aware parser.
+    return parsePrice(val);
 }
 function parseTyreDimensions(dim) {
     if (!dim) return { width: "", height: "", diameter: "" };
@@ -152,7 +157,9 @@ function findChangedFields(existing, incoming) {
     return changed;
 }
 function getProductKey(row) {
-    return normalizeEAN(row["ean"]);
+    // Same key as the quick price update — EAN, falling back to GTIN/UPC
+    // columns some merchants fill instead of "ean".
+    return getFeedProductKey(row);
 }
 function groupRowsByProductKey(rows) {
     const grouped = {};
@@ -173,6 +180,38 @@ function getVendorSavings(offers) {
     const savings_amount = max > min ? +(max - min).toFixed(2) : 0;
     const savings_percent = max > min ? `-${Math.round(((max - min) / max) * 100)}%` : "0%";
     return { savings_amount, savings_percent };
+}
+
+/**
+ * Per-merchant coverage of the last import: how many of each shop's rows
+ * ended up as an offer on a product, and why the rest didn't.
+ */
+function buildCoverageStats(grouped, importedKeys) {
+    const merchants = {};
+    const m = (name) =>
+        (merchants[name] ||= { rows: 0, onProducts: 0, noReifenComMatch: 0, noAwinLink: 0, noPrice: 0 });
+    let groupsTotal = 0, groupsImported = 0, groupsSingleVendor = 0, groupsMultiVendor = 0;
+    for (const [key, rows] of Object.entries(grouped)) {
+        groupsTotal++;
+        const imported = importedKeys.has(key);
+        const vendors = new Set();
+        for (const r of rows) {
+            const name = String(r.merchant_name || "unknown").trim();
+            const stat = m(name);
+            stat.rows++;
+            if (!hasAwinAffiliateLink(r)) { stat.noAwinLink++; continue; }
+            if (!(pickOfferPrice(r) > 0)) { stat.noPrice++; continue; }
+            if (imported) { stat.onProducts++; vendors.add(name); }
+            else stat.noReifenComMatch++;
+        }
+        if (imported) {
+            groupsImported++;
+            if (vendors.size > 1) groupsMultiVendor++; else groupsSingleVendor++;
+        }
+    }
+    const stats = { at: new Date(), groupsTotal, groupsImported, groupsSingleVendor, groupsMultiVendor, merchants };
+    console.log("[AWIN] Vendor coverage:", JSON.stringify(stats, null, 2));
+    return stats;
 }
 
 /* ---------------- Public API ---------------- */
@@ -300,7 +339,7 @@ export async function importAWINCsv(filePath) {
 
                 if (!isValidVendor(row)) return;
 
-                const groupKey = normalizeEAN(row["ean"]);
+                const groupKey = getProductKey(row);
                 if (!groupKey) {
                     importStatus.skipReasons.missingEAN++;
                     importStatus.skipped++;
@@ -316,10 +355,12 @@ export async function importAWINCsv(filePath) {
                 rows.push(row);
             })
             .on("end", async () => {
+              try {
                 importStatus.vendors = Array.from(vendorsFound).sort();
                 const grouped = groupRowsByProductKey(rows);
 
                 const groupKeys = Object.keys(grouped);
+                const products_seen = new Set();
                 for (let i = 0; i < groupKeys.length; i += BATCH_SIZE) {
                     const batchKeys = groupKeys.slice(i, i + BATCH_SIZE);
                     const products = {};
@@ -382,11 +423,13 @@ export async function importAWINCsv(filePath) {
                                 delivery_time: row["delivery_time"],
                                 product_category: row["merchant_product_third_category"],
                                 merchant_deep_link: row["merchant_deep_link"],
-                                in_stock: row["in_stock"] === "1" || row["in_stock"] === 1 || row["in_stock"] === 1.0,
+                                in_stock: parseInStock(row["in_stock"]),
                             };
                         });
 
-                        const offers = dedupeOffers(offersRaw);
+                        // One offer per vendor (in-stock first, then lowest price), and
+                        // hide vendors without stock when someone else can deliver.
+                        const offers = dropOutOfStockWhenAlternatives(dedupeOffers(offersRaw));
                         const tyreLabels = pickTyreLabelFields(vendorRowsFiltered);
                         const reviewFields = pickReviewFields(vendorRowsFiltered);
                         const productDescription = pickDescription(
@@ -405,7 +448,7 @@ export async function importAWINCsv(filePath) {
                         const cheapestVendorOffer = offers.find((o) => o.price === cheapest);
                         const savings = getVendorSavings(offers);
 
-                        const ean = normalizeEAN(masterRow["ean"]);
+                        const ean = groupKey; // EAN, or GTIN/UPC fallback
 
                         products[groupKey] = {
                             ean,
@@ -533,6 +576,7 @@ export async function importAWINCsv(filePath) {
                             // ✅ NEW: inline slug creation (EAN appended for uniqueness)
                             slug: buildProductSlug(masterRow["brand_name"], masterRow["product_name"], ean),
                         };
+                        products_seen.add(groupKey);
                     }
 
                     const csvEanList = Object.keys(products);
@@ -548,23 +592,8 @@ export async function importAWINCsv(filePath) {
                         const newProd = products[ean];
                         const existing = dbEanToProduct[ean];
 
-                        const priceList = newProd.offers.map((o) => o.price).filter((p) => typeof p === "number" && !isNaN(p) && p > 0);
-                        const cheapest_offer = priceList.length ? Math.min(...priceList) : 0;
-                        const expensive_offer = priceList.length ? Math.max(...priceList) : 0;
-                        const savings_amount = expensive_offer > cheapest_offer ? +(expensive_offer - cheapest_offer).toFixed(2) : 0;
-                        const savings_percent =
-                            expensive_offer > cheapest_offer ? `-${Math.round(((expensive_offer - cheapest_offer) / expensive_offer) * 100)}%` : "0%";
-
-                        newProd.cheapest_offer = cheapest_offer;
-                        newProd.expensive_offer = expensive_offer;
-                        newProd.savings_amount = savings_amount;
-                        newProd.savings_percent = savings_percent;
-                        newProd.search_price = cheapest_offer;
-                        newProd.cheapest_price_display = cheapest_offer ? `${cheapest_offer.toFixed(2).replace(".", ",")} €` : undefined;
-                        newProd.expensive_price_display = expensive_offer ? `${expensive_offer.toFixed(2).replace(".", ",")} €` : undefined;
-                        newProd.savings_badge = savings_amount > 0 ? `Spare ${savings_percent}` : undefined;
-                        newProd.offer_count_display = newProd.offers.length > 1 ? `${newProd.offers.length} Angebote` : "1 Angebot";
-                        newProd.total_offers = newProd.offers.length;
+                        // Same price/best-vendor logic as every other price job.
+                        Object.assign(newProd, computeOfferStats(newProd.offers));
 
                         // ✅ Ensure slug exists for both insert and update paths
                         if (existing?.slug) {
@@ -650,11 +679,21 @@ export async function importAWINCsv(filePath) {
                     if (bulkOps.length) await LiveProduct.bulkWrite(bulkOps);
                 }
 
-                // Delete absent EANs (optional)
+                // Delete products that are no longer in the feed — but never on a
+                // truncated/failed download, which would wipe the catalogue.
                 const csvEanSet = new Set(Object.keys(grouped));
                 const allDbEans = (await LiveProduct.find({}, { ean: 1 })).map((p) => normalizeEAN(p.ean)).filter(Boolean);
                 const toDeleteEans = allDbEans.filter((dbEan) => !csvEanSet.has(dbEan));
-                if (toDeleteEans.length > 0) {
+                const maxDeleteRatio = Number(process.env.AWIN_MAX_DELETE_RATIO || 0.3);
+                const deleteRatio = allDbEans.length ? toDeleteEans.length / allDbEans.length : 0;
+                if (toDeleteEans.length > 0 && deleteRatio > maxDeleteRatio) {
+                    importStatus.deleted = 0;
+                    console.warn(
+                        `[AWIN] Refusing to delete ${toDeleteEans.length}/${allDbEans.length} products ` +
+                        `(${Math.round(deleteRatio * 100)}% > ${Math.round(maxDeleteRatio * 100)}%). ` +
+                        "Feed looks incomplete — check the download. Set AWIN_MAX_DELETE_RATIO to override."
+                    );
+                } else if (toDeleteEans.length > 0) {
                     const deleted = await LiveProduct.deleteMany({ ean: { $in: toDeleteEans } });
                     importStatus.deleted = deleted.deletedCount || 0;
                 } else {
@@ -678,11 +717,23 @@ export async function importAWINCsv(filePath) {
                             done: true,
                             lastSuccess: new Date(),
                             progress: 100,
+                            deleted: importStatus.deleted || 0,
+                            skipped: importStatus.skipped || 0,
+                            stats: buildCoverageStats(grouped, products_seen),
                         },
                     }
                 );
 
                 resolve();
+              } catch (err) {
+                // Never leave isRunning=true behind — that froze the cron.
+                importStatus.error = err?.message || String(err);
+                await ImportMeta.updateOne(
+                    { source: "AWIN" },
+                    { $set: { isRunning: false, done: false, lastError: importStatus.error, lastErrorAt: new Date() } }
+                ).catch(console.error);
+                reject(err);
+              }
             })
             .on("error", (err) => {
                 importStatus.error = err.message;

@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import axios from "axios";
 import pLimit from "p-limit";
 import Product from "../../models/product.js";
+import { computeOfferStats } from "./offerPricing.js";
 
 dotenv.config();
 
@@ -19,6 +20,12 @@ const HTTP_TIMEOUT_MS = Number(process.env.PRICE_REFRESH_TIMEOUT_MS || 15000);
 const MAX_HTML_BYTES = Number(process.env.PRICE_REFRESH_MAX_HTML_BYTES || 2 * 1024 * 1024);
 // If true, do not write to DB, only log what would change
 const DRY_RUN = String(process.env.PRICE_REFRESH_DRY_RUN || "false").toLowerCase() === "true";
+// Overwrite AWIN prices with merchant-page prices? (default: no, verify only)
+const APPLY = String(process.env.PRICE_REFRESH_APPLY || "false").toLowerCase() === "true";
+// Flag offers whose merchant price differs from AWIN by more than this
+const MISMATCH_RATIO = Number(process.env.PRICE_MISMATCH_RATIO || 0.03);
+// Never apply a merchant price that differs by more than this (likely wrong scrape)
+const MAX_APPLY_RATIO = Number(process.env.PRICE_REFRESH_MAX_APPLY_RATIO || 0.25);
 
 /* ------------------------------- Utilities ------------------------------ */
 function parseSafeNumber(val) {
@@ -51,92 +58,62 @@ function parseSafeNumber(val) {
     return isFinite(num) ? num : undefined;
 }
 
-function priceToDisplay(num) {
-    if (typeof num !== "number" || !isFinite(num) || num <= 0) return undefined;
-    return `${num.toFixed(2).replace(".", ",")} €`;
-}
-
-function computeDerivedFromOffers(offers = []) {
-    const prices = offers
-        .map(o => (typeof o.price === "number" && o.price > 0 ? o.price : 0))
-        .filter(p => p > 0);
-
-    const cheapest_offer = prices.length ? Math.min(...prices) : 0;
-    const expensive_offer = prices.length ? Math.max(...prices) : 0;
-    const savings_amount =
-        expensive_offer > cheapest_offer ? +(expensive_offer - cheapest_offer).toFixed(2) : 0;
-    const savings_percent =
-        expensive_offer > cheapest_offer
-            ? `-${Math.round(((expensive_offer - cheapest_offer) / expensive_offer) * 100)}%`
-            : "0%";
-
-    const cheapestVendorOffer =
-        offers.find(o => typeof o.price === "number" && o.price === cheapest_offer) || null;
-
-    const cheapest_vendor = cheapestVendorOffer
-        ? {
-            aw_product_id: cheapestVendorOffer.aw_product_id,
-            vendor_id: cheapestVendorOffer.vendor_id,
-            vendor: cheapestVendorOffer.vendor,
-            vendor_logo: cheapestVendorOffer.vendor_logo,
-            aw_deep_link: cheapestVendorOffer.aw_deep_link,
-            payment_icons: cheapestVendorOffer.payment_icons,
-            delivery_cost: cheapestVendorOffer.delivery_cost,
-            original_affiliate_url: cheapestVendorOffer.original_affiliate_url,
-            affiliate_product_cloak_url: cheapestVendorOffer.affiliate_product_cloak_url || null,
-        }
-        : null;
-
-    return {
-        cheapest_offer,
-        expensive_offer,
-        savings_amount,
-        savings_percent,
-        search_price: cheapest_offer,
-        cheapest_price_display: priceToDisplay(cheapest_offer),
-        expensive_price_display: priceToDisplay(expensive_offer),
-        savings_badge: savings_amount > 0 ? `Spare ${savings_percent}` : undefined,
-        offer_count_display: offers.length > 1 ? `${offers.length} Angebote` : "1 Angebot",
-        cheapest_vendor,
-    };
-}
-
 /* ----------------------------- Price scraping --------------------------- */
 /**
- * Try multiple strategies (JSON-LD first, then microdata/meta, then regex fallback).
- * Returns a number (EUR) or undefined if not found.
+ * Read the price of THE product on a merchant page.
+ *
+ * Previously this took the LOWEST number anywhere on the page (cross-sells,
+ * shipping "4,99", highPrice/lowPrice, data-price of other sizes, even a
+ * regex over the whole HTML) and wrote it over the AWIN price — so the site
+ * showed prices the shop never charged. Now only an unambiguous main-product
+ * price is accepted; anything else returns undefined (= "couldn't verify").
  */
 async function fetchLivePrice(url) {
     const html = await fetchHtml(url);
     if (!html) return undefined;
-
-    // 1) JSON-LD (Product → offers → price, or AggregateOffer → lowPrice)
-    try {
-        const ldPrices = extractPricesFromJsonLd(html);
-        const num = pickBestPrice(ldPrices);
-        if (isFinite(num)) return num;
-    } catch { }
-
-    // 2) Microdata/meta tags (itemprop="price", meta price, og/twitter tags)
-    try {
-        const metaPrices = extractPricesFromMeta(html);
-        const num = pickBestPrice(metaPrices);
-        if (isFinite(num)) return num;
-    } catch { }
-
-    // 3) Regex fallback (may be noisy; take **smallest valid** > 0)
-    const rxPrices = extractPricesViaRegex(html);
-    const num = pickBestPrice(rxPrices);
-    if (isFinite(num)) return num;
-
-    return undefined;
+    return mainProductPrice(html);
 }
 
-function pickBestPrice(list) {
-    const nums = (list || []).map(parseSafeNumber).filter(p => typeof p === "number" && p > 0);
-    if (!nums.length) return undefined;
-    // prefer the **lowest** price found on the page (common for PDPs)
-    return Math.min(...nums);
+export function mainProductPrice(html) {
+    // 1) JSON-LD: exactly one Product, its own Offer(s), one distinct price
+    const products = [];
+    const rx = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let m;
+    while ((m = rx.exec(html))) {
+        try {
+            const stack = [JSON.parse(m[1].trim())];
+            while (stack.length) {
+                const n = stack.pop();
+                if (!n || typeof n !== "object") continue;
+                if (Array.isArray(n)) { stack.push(...n); continue; }
+                if (n["@graph"]) stack.push(n["@graph"]);
+                const types = [].concat(n["@type"] || []).map(t => String(t).toLowerCase());
+                if (types.includes("product")) products.push(n);
+            }
+        } catch { /* invalid JSON-LD */ }
+    }
+    if (products.length === 1) {
+        const prices = new Set();
+        for (const o of [].concat(products[0].offers || [])) {
+            if (!o) continue;
+            const t = String(o["@type"] || "").toLowerCase();
+            const cur = String(o.priceCurrency || "EUR").toUpperCase();
+            if (cur !== "EUR") continue;
+            if (t === "aggregateoffer") continue; // marketplace range, not a price
+            const p = parseSafeNumber(o.price ?? o.priceSpecification?.price);
+            if (p > 0) prices.add(+p.toFixed(2));
+        }
+        if (prices.size === 1) return [...prices][0];
+        if (prices.size > 1) return undefined;
+    }
+
+    // 2) OpenGraph product price (one per page by definition)
+    const og = [...html.matchAll(/<meta[^>]+property=["'](?:product|og):price:amount["'][^>]*content=["']([^"']+)["']/gi)]
+        .map(x => parseSafeNumber(x[1]))
+        .filter(p => p > 0);
+    if (og.length && new Set(og).size === 1) return og[0];
+
+    return undefined;
 }
 
 async function fetchHtml(url) {
@@ -159,87 +136,6 @@ async function fetchHtml(url) {
     }
 }
 
-function extractPricesFromJsonLd(html) {
-    const prices = [];
-    const scriptRx =
-        /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-    let m;
-    while ((m = scriptRx.exec(html))) {
-        const raw = m[1];
-        try {
-            const json = JSON.parse(raw.trim());
-            scanJsonLd(json, prices);
-        } catch {
-            // Some sites embed invalid JSON-LD; ignore
-        }
-    }
-    return prices;
-}
-
-function scanJsonLd(node, prices) {
-    if (!node) return;
-    if (Array.isArray(node)) {
-        node.forEach(n => scanJsonLd(n, prices));
-        return;
-    }
-    if (typeof node === "object") {
-        // Offer / AggregateOffer
-        if (
-            (node["@type"] === "Offer" || node["@type"] === "AggregateOffer") &&
-            (node.price || node.lowPrice || node.highPrice)
-        ) {
-            if (node.price) prices.push(String(node.price));
-            if (node.lowPrice) prices.push(String(node.lowPrice));
-            if (node.highPrice) prices.push(String(node.highPrice));
-        }
-        // Product → offers
-        if (node["@type"] === "Product" && node.offers) {
-            scanJsonLd(node.offers, prices);
-        }
-        // Traverse generically
-        for (const k of Object.keys(node)) {
-            if (k === "price" || k === "lowPrice" || k === "highPrice") {
-                prices.push(String(node[k]));
-            } else {
-                scanJsonLd(node[k], prices);
-            }
-        }
-    }
-}
-
-function extractPricesFromMeta(html) {
-    const prices = [];
-    // itemprop="price" content="..."
-    const itempropRx = /itemprop=["']price["'][^>]*content=["']([^"']+)["']/gi;
-    let m;
-    while ((m = itempropRx.exec(html))) prices.push(m[1]);
-
-    // meta property="product:price:amount" content="..."
-    const ogPriceRx =
-        /<meta[^>]+property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/gi;
-    while ((m = ogPriceRx.exec(html))) prices.push(m[1]);
-
-    // meta name="twitter:data1" content="€ 123,45"  (rare but seen)
-    const twPriceRx =
-        /<meta[^>]+name=["']twitter:data1["'][^>]*content=["']([^"']+)["']/gi;
-    while ((m = twPriceRx.exec(html))) prices.push(m[1]);
-
-    // data-price="..."
-    const dataPriceRx = /data-price=["']([^"']+)["']/gi;
-    while ((m = dataPriceRx.exec(html))) prices.push(m[1]);
-
-    return prices;
-}
-
-function extractPricesViaRegex(html) {
-    const prices = [];
-    // Look for numbers that look like prices with 2 decimals, allow thousands sep
-    const rx =
-        /(?:^|[^\d])(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))(?:[^\d]|$)/g;
-    let m;
-    while ((m = rx.exec(html))) prices.push(m[1]);
-    return prices;
-}
 
 /* --------------------------- MongoDB plumbing --------------------------- */
 const LiveProduct = mongoose.model("Product", Product.schema, "products");
@@ -296,56 +192,46 @@ async function processProduct(prod) {
 
     const offers = prod.offers.map(o => ({ ...o })); // shallow clone
     const limitOffer = pLimit(OFFER_CONCURRENCY);
+    let priceChanges = 0;
+    let checked = 0;
 
-    // Get live price for each offer that has a merchant_deep_link
+    // Verify each vendor page against the AWIN price. The AWIN feed is the
+    // price AWIN and the shop agree on, so by default we only RECORD the
+    // merchant price; PRICE_REFRESH_APPLY=true lets small, plausible
+    // differences (feed lag) update the shown price.
     await Promise.all(
-        offers.map((offer, idx) =>
+        offers.map((offer) =>
             limitOffer(async () => {
                 const url = String(offer.merchant_deep_link || "").trim();
                 if (!/^https?:\/\//i.test(url)) return;
 
                 const livePrice = await fetchLivePrice(url);
-                if (typeof livePrice === "number" && livePrice > 0) {
-                    // Only update if materially different (>= 0.01)
-                    const old = typeof offer.price === "number" ? offer.price : 0;
-                    if (Math.abs(livePrice - old) >= 0.01) {
-                        offers[idx].price = +livePrice.toFixed(2);
-                    }
+                if (!(livePrice > 0)) return;
+                checked++;
+
+                const feed = Number(offer.price) || 0;
+                const diffRatio = feed > 0 ? Math.abs(livePrice - feed) / feed : 1;
+                offer.merchant_price = livePrice;
+                offer.merchant_price_checked_at = new Date();
+                offer.price_mismatch = diffRatio > MISMATCH_RATIO;
+
+                if (APPLY && diffRatio > 0 && diffRatio <= MAX_APPLY_RATIO && Math.abs(livePrice - feed) >= 0.01) {
+                    offer.price = livePrice;
+                    offer.price_mismatch = false;
+                    priceChanges++;
                 }
             })
         )
     );
 
-    // Did any price change?
-    const changed =
-        JSON.stringify(offers.map(o => o.price)) !==
-        JSON.stringify(prod.offers.map(o => o.price));
+    if (!checked) return { changed: false };
 
-    if (!changed) {
-        return { changed: false };
-    }
-
-    // Recompute derived metrics (mirror AWIN logic)
-    const derived = computeDerivedFromOffers(offers);
-
+    const derived = computeOfferStats(offers);
     const update = {
-        offers,
-        cheapest_offer: derived.cheapest_offer,
-        expensive_offer: derived.expensive_offer,
-        savings_amount: derived.savings_amount,
-        savings_percent: derived.savings_percent,
-        search_price: derived.search_price,
-        cheapest_price_display: derived.cheapest_price_display,
-        expensive_price_display: derived.expensive_price_display,
-        savings_badge: derived.savings_badge,
-        offer_count_display: derived.offer_count_display,
-        cheapest_vendor: derived.cheapest_vendor,
-        // Optional: make product_url follow cheapest offer (like import does)
-        ...(derived.cheapest_vendor?.aw_deep_link
-            ? { product_url: derived.cheapest_vendor.aw_deep_link }
-            : {}),
+        ...derived,
         last_price_refreshed_at: new Date(),
     };
+
 
     if (DRY_RUN) {
         return { changed: true, update, dryRun: true };
@@ -411,4 +297,6 @@ async function main() {
     }
 }
 
-main();
+if (process.argv[1] && process.argv[1].endsWith("refreshPricesFromMerchants.js")) {
+    main();
+}
