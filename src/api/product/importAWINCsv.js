@@ -11,6 +11,7 @@ import { findLogo } from "../utils/logoFinder.js";
 import affiliateCloak from "../utils/affiliateCloak.js";
 import { getVendorPaymentIcons } from "../utils/vendorPaymentIcons.js";
 import crypto from "crypto";
+import { nextPriceTrend, recordPriceSnapshots } from "../utils/priceHistory.js";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
@@ -633,6 +634,7 @@ export async function importAWINCsv(filePath) {
                     });
 
                     const bulkOps = [];
+                    const touched = []; // inserted/updated → price history snapshot
 
                     for (const ean of csvEanList) {
                         const newProd = products[ean];
@@ -700,14 +702,19 @@ export async function importAWINCsv(filePath) {
 
                         if (!existing) {
                             importStatus.imported++;
+                            newProd.price_trend = nextPriceTrend(null, newProd.cheapest_offer);
+                            touched.push(newProd);
                             bulkOps.push({ insertOne: { document: newProd } });
                             if (importStatus.debugLog.length < DEBUG_LOG_MAX) importStatus.debugLog.push(`[INSERT] ${ean}`);
                             if (String(newProd.product_image || "").includes("reifen.com")) {
                                 cloudinaryUploadQueue.add(ean);
                             }
                         } else {
-                            if (existing.import_hash !== newProd.import_hash) {
+                            // also update once when the product has no price trend yet
+                            if (existing.import_hash !== newProd.import_hash || !existing.price_trend?.points?.length) {
                                 importStatus.updated++;
+                                newProd.price_trend = nextPriceTrend(existing.price_trend, newProd.cheapest_offer);
+                                touched.push(newProd);
                                 bulkOps.push({
                                     updateOne: {
                                         filter: { _id: existing._id },
@@ -726,6 +733,7 @@ export async function importAWINCsv(filePath) {
                     }
 
                     if (bulkOps.length) await LiveProduct.bulkWrite(bulkOps, { ordered: false });
+                    if (touched.length) await recordPriceSnapshots(touched);
                     // One progress write per batch (was one awaited write per product).
                     await ImportMeta.updateOne(
                         { source: "AWIN" },

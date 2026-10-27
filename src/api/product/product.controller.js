@@ -166,6 +166,7 @@ export const productLists = async (req, res) => {
                     tyre_label_info: 1,
                     cheapest_vendor: 1,
                     offers: 1,
+                    price_trend: 1,
                 })
                 .lean(),
             Product.countDocuments(filters),
@@ -519,6 +520,7 @@ export const getProductDetails = async (req, res) => {
                     createdAt: 1,
                     tyre_label_info: 1,
                     offers: 1,
+                    price_trend: 1,
                 },
             },
             { $sort: { createdAt: -1, search_price: 1 } },
@@ -647,6 +649,7 @@ export const getLatestProducts = async (req, res) => {
                     savings_percent: 1,
                     total_offers: 1,
                     offers: 1,
+                    price_trend: 1,
                     tyre_label_info: 1,
                     width: 1,
                     height: 1,
@@ -938,6 +941,7 @@ export const getFeaturedProducts = async (req, res) => {
                     savings_percent: 1,
                     total_offers: 1,
                     offers: 1,
+                    price_trend: 1,
                     tyre_label_info: 1,
                     in_stock: 1,
                     width: 1,
@@ -1386,5 +1390,33 @@ export const getSeoLandings = async (req, res) => {
     } catch (err) {
         console.error("getSeoLandings failed:", err);
         return res.status(500).json({ message: "Failed to build SEO landings" });
+    }
+};
+
+/**
+ * Price history for the product page chart.
+ * GET /api/products/price-history/:slug?days=30|90|365
+ */
+export const getPriceHistory = async (req, res) => {
+    try {
+        const days = Math.min(400, Math.max(7, Number(req.query.days) || 90));
+        const product = await Product.findOne({ slug: req.params.slug }, { ean: 1, offers: 1, cheapest_offer: 1 }).lean();
+        if (!product) return res.status(404).json({ message: "Product not found" });
+        const { loadPriceHistory } = await import("../utils/priceHistory.js");
+        const history = await loadPriceHistory(product.ean, days);
+        res.set("Cache-Control", "public, max-age=600");
+        return res.json({
+            ...history,
+            days,
+            current: {
+                best: toNumericPrice(product.cheapest_offer),
+                offers: (product.offers || [])
+                    .map((o) => ({ vendor: o.vendor, vendor_id: o.vendor_id, price: toNumericPrice(o.price), in_stock: o.in_stock !== false }))
+                    .filter((o) => o.price > 0),
+            },
+        });
+    } catch (err) {
+        console.error("getPriceHistory failed:", err);
+        return res.status(500).json({ message: "Failed to load price history" });
     }
 };

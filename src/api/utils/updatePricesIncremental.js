@@ -19,6 +19,7 @@ import {
     getFeedProductKey,
 } from "./offerPricing.js";
 import { hasAwinAffiliateLink } from "./offerUtils.js";
+import { nextPriceTrend, recordPriceSnapshots } from "./priceHistory.js";
 
 dotenv.config();
 
@@ -105,9 +106,10 @@ async function processGroupBatch(eanToRowsMap, counters) {
     const eans = Array.from(eanToRowsMap.keys());
     if (!eans.length) return;
 
-    const docs = await LiveProduct.find({ ean: { $in: eans } }, { ean: 1, offers: 1 }).lean();
+    const docs = await LiveProduct.find({ ean: { $in: eans } }, { ean: 1, offers: 1, price_trend: 1 }).lean();
     const dbByEan = new Map(docs.map(d => [normalizeEAN(d.ean), d]));
     const bulk = [];
+    const touched = [];
 
     for (const ean of eans) {
         counters.processed++;
@@ -157,7 +159,9 @@ async function processGroupBatch(eanToRowsMap, counters) {
 
         const kept = dropOutOfStockWhenAlternatives(offers);
         const stats = computeOfferStats(kept);
-        bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { ...stats, last_price_synced_at: new Date() } } } });
+        const price_trend = nextPriceTrend(doc.price_trend, stats.cheapest_offer);
+        touched.push({ ean: doc.ean, offers: stats.offers, cheapest_offer: stats.cheapest_offer });
+        bulk.push({ updateOne: { filter: { _id: doc._id }, update: { $set: { ...stats, price_trend, last_price_synced_at: new Date() } } } });
 
         counters.updated++;
         counters.offersUpdated += changes;
@@ -169,6 +173,7 @@ async function processGroupBatch(eanToRowsMap, counters) {
     }
 
     if (bulk.length) await LiveProduct.bulkWrite(bulk, { ordered: false });
+    if (touched.length) await recordPriceSnapshots(touched);
 }
 
 /* ---------------- Main ---------------- */
