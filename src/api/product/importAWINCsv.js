@@ -574,7 +574,10 @@ export async function importAWINCsv(filePath) {
                         }
 
                         if (existing) {
-                            const feedAwin = awinImage || existing.awin_image_url || "";
+                            // awinImage only exists in the grouping loop above; use the value
+                            // stored on newProd (was a ReferenceError that aborted every import
+                            // as soon as it reached an existing product).
+                            const feedAwin = newProd.awin_image_url || existing.awin_image_url || "";
                             newProd.awin_image_url = feedAwin;
                             if (isLocalProductImagePath(existing.product_image)) {
                                 newProd.product_image = existing.product_image;
