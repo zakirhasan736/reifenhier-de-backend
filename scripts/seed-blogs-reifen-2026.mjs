@@ -2,7 +2,7 @@
 /**
  * Publishes three SEO articles for the 2026/27 winter season.
  *
- *   node scripts/seed-blogs-reifen-2026.mjs --dry   # print, write nothing
+ *   node scripts/seed-blogs-reifen-2026.mjs --dry   # print, write nothing (run from the backend folder)
  *   node scripts/seed-blogs-reifen-2026.mjs         # upsert by slug
  *
  * Facts verified against ADAC (Winterreifentest 22.09.2026,
