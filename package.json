@@ -15,8 +15,7 @@
     "repair:vendors": "node scripts/repair-vendor-assets.mjs",
     "build": "echo \"✔ No build step required for plain Node.js\"",
     "test": "echo \"No tests specified\" && exit 0",
-    "awin:coverage": "node scripts/awin-vendor-coverage.mjs",
-    "blogs:seed-2026": "node scripts/seed-blogs-reifen-2026.mjs"
+    "awin:coverage": "node scripts/awin-vendor-coverage.mjs"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
