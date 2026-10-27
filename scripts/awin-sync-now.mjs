@@ -28,10 +28,11 @@ import mongoose from "mongoose";
 import Product from "../src/models/product.js";
 import ImportMeta from "../src/models/ImportMeta.js";
 import { importAWINCsv } from "../src/api/product/importAWINCsv.js";
-import { detectCsvSeparator, parseAwinFeedMeta } from "../src/api/utils/awinCsv.js";
+import { detectCsvSeparator } from "../src/api/utils/awinCsv.js";
 import { getFeedProductKey, pickRowPrice, parseInStock } from "../src/api/utils/offerPricing.js";
 import { hasAwinAffiliateLink } from "../src/api/utils/offerUtils.js";
 import { getLockState, releaseStaleLock, waitForImportIdle } from "../src/api/utils/importLock.js";
+import { downloadAwinFeed } from "../src/api/utils/awinFeedDownload.js";
 
 dotenv.config();
 
@@ -61,22 +62,18 @@ async function getFeedFile() {
     buf = fs.readFileSync(FILE);
     log(`Using local feed ${FILE}`);
   } else {
-    const url = process.env.AWIN_CSV_URL;
-    if (!url) fail("AWIN_CSV_URL is not set in .env");
-    const { cid } = parseAwinFeedMeta(url);
-    log(`Downloading AWIN feed (campaign ${cid || "n/a"})…`);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15 * 60 * 1000);
+    // shop by shop, unchanged shops from cache, retries; falls back to one download
+    let dl;
     try {
-      const res = await fetch(url, { signal: ctrl.signal });
-      if (!res.ok) fail(`Feed download failed: HTTP ${res.status} ${res.statusText}`);
-      buf = Buffer.from(await res.arrayBuffer());
+      dl = await downloadAwinFeed(process.env.AWIN_CSV_URL, { log: (m) => log(m) });
     } catch (e) {
-      fail(`Feed download failed: ${e.message}`);
-    } finally {
-      clearTimeout(timer);
+      fail(e.message);
     }
-    log(`Downloaded ${(buf.length / 1048576).toFixed(1)} MB`);
+    if (dl.feeds.length) {
+      console.log("");
+      console.table(dl.feeds.map((f) => ({ Shop: f.name, "Feed-ID": f.fid, Status: f.status, Zeilen: f.rows, MB: +(f.bytes / 1048576).toFixed(1) })));
+    }
+    return dl.file;
   }
   if (buf.slice(0, 2).toString() === "PK") {
     const entry = new AdmZip(buf).getEntries().find((e) => /\.csv$/i.test(e.entryName));
