@@ -18,7 +18,9 @@
     "awin:coverage": "node scripts/awin-vendor-coverage.mjs",
     "blogs:seed-2026": "node scripts/seed-blogs-reifen-2026.mjs",
     "awin:sync": "node scripts/awin-sync-now.mjs",
-    "awin:check": "node scripts/awin-sync-now.mjs --check-only"
+    "awin:check": "node scripts/awin-sync-now.mjs --check-only",
+    "reifen:prices": "node src/api/utils/syncReifenComPrices.js",
+    "reifen:check": "node scripts/check-reifen-com-prices.mjs"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",

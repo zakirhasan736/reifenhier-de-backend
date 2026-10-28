@@ -9,42 +9,22 @@ import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import mongoose from 'mongoose'
-import axios from 'axios'
-import { mainProductPrice } from '../src/api/utils/refreshPricesFromMerchants.js'
+import { parseReifenComPage, fetchReifenComHtml } from '../src/api/utils/reifenComLivePrice.js'
+import { isReifenComOffer, reifenComProductUrl, REIFEN_COM_VENDOR_REGEX } from '../src/api/utils/reifenCom.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '../.env') })
 
 const arg = process.argv[2] || '30'
 const isSlug = !/^\d+$/.test(arg)
-const VENDOR = /^\s*reifen\.com\s*$/i
 const TOLERANCE = 0.01 // 1 cent
-
-async function fetchHtml(url) {
-  try {
-    const { data, status } = await axios.get(url, {
-      timeout: 20000,
-      maxRedirects: 5,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml',
-        'Accept-Language': 'de-DE,de;q=0.9',
-      },
-      validateStatus: () => true,
-    })
-    return { html: typeof data === 'string' ? data : '', status }
-  } catch (e) {
-    return { html: '', status: e.code || 'ERR' }
-  }
-}
 
 await mongoose.connect(process.env.MONGODB_URI)
 const col = mongoose.connection.db.collection('products')
 
 const match = isSlug
   ? { slug: arg }
-  : { offers: { $elemMatch: { vendor: VENDOR, price: { $gt: 0 } } } }
+  : { offers: { $elemMatch: { vendor: REIFEN_COM_VENDOR_REGEX, price: { $gt: 0 } } } }
 const pipeline = [{ $match: match }]
 if (!isSlug) pipeline.push({ $sample: { size: Number(arg) } })
 pipeline.push({ $project: { slug: 1, ean: 1, product_name: 1, offers: 1, last_price_synced_at: 1, updatedAt: 1 } })
@@ -54,13 +34,13 @@ const totals = { checked: 0, same: 0, wrong: 0, unreadable: 0, noOffer: 0 }
 const wrong = []
 
 for (const p of products) {
-  const offer = (p.offers || []).find((o) => VENDOR.test(o.vendor || ''))
+  const offer = (p.offers || []).find(isReifenComOffer)
   if (!offer) { totals.noOffer++; continue }
-  const url = String(offer.merchant_deep_link || '').trim()
-  if (!/^https?:\/\//i.test(url)) { totals.unreadable++; continue }
+  const url = reifenComProductUrl(offer)
+  if (!url) { totals.unreadable++; continue }
 
-  const { html, status } = await fetchHtml(url)
-  const live = html ? mainProductPrice(html) : undefined
+  const { html, status } = await fetchReifenComHtml(url)
+  const live = parseReifenComPage(html).price
   totals.checked++
   if (!(live > 0)) {
     totals.unreadable++

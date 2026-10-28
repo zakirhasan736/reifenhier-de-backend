@@ -18,6 +18,8 @@ const ImportMetaSchema = new mongoose.Schema({
     lastErrorAt: { type: Date },
     // per-run vendor coverage, see importAWINCsv
     stats: { type: mongoose.Schema.Types.Mixed },
+    // reifen.com coverage of the last import (rows, car tyres, products, rejected categories)
+    reifenCom: { type: mongoose.Schema.Types.Mixed },
 });
 
 export default mongoose.model("ImportMeta", ImportMetaSchema);

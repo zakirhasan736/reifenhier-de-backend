@@ -31,6 +31,11 @@ const OfferSchema = new mongoose.Schema({
   merchant_price: Number,
   merchant_price_checked_at: Date,
   price_mismatch: Boolean,
+  // reifen.com live price (syncReifenComPrices): "awin" or "reifen.com-live"
+  price_source: String,
+  awin_price: Number,
+  live_price_checked_at: Date,
+  live_price_status: String,
 }, { _id: false });
  
 // Main Product schema
@@ -92,6 +97,22 @@ const ProductSchema = new mongoose.Schema({
     in_stock: Boolean,
     aw_product_id: String,
   },
+  // reifen.com = default vendor, shown on every product (see utils/reifenCom.js)
+  default_vendor: {
+    vendor: String,
+    vendor_id: String,
+    vendor_logo: String,
+    aw_deep_link: String,
+    affiliate_product_cloak_url: String,
+    original_affiliate_url: String,
+    delivery_cost: String,
+    payment_icons: [String],
+    price: Number,
+    in_stock: Boolean,
+    aw_product_id: String,
+  },
+  reifen_com_price: Number,
+  reifen_com_price_checked_at: Date,
   base_price: String,
   base_price_amount: String,
   base_price_text: String,

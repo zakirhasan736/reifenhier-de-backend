@@ -19,6 +19,7 @@ import {
     getFeedProductKey,
 } from "./offerPricing.js";
 import { hasAwinAffiliateLink } from "./offerUtils.js";
+import { isReifenComOffer } from "./reifenCom.js";
 import { nextPriceTrend, recordPriceSnapshots } from "./priceHistory.js";
 
 dotenv.config();
@@ -32,6 +33,7 @@ const GROUP_SIZE = Number(process.env.PRICE_GROUP_SIZE || 400);    // unique EAN
 const PRINT_EVERY = Number(process.env.PRICE_PRINT_EVERY || 200);  // products per progress line
 const PRICE_EPS = Number(process.env.PRICE_EPS || 0.005);         // min delta to consider a change
 const TIMEOUT_MS = Number(process.env.FEED_HTTP_TIMEOUT_MS || 180000); // ZIP download timeout
+const LIVE_PRICE_TTL_MS = Number(process.env.REIFEN_LIVE_PRICE_TTL_HOURS || 26) * 3600 * 1000;
 
 /* ---------------- Utils ---------------- */
 function normalizeEAN(ean) {
@@ -131,11 +133,20 @@ async function processGroupBatch(eanToRowsMap, counters) {
                 byVendorName.get(rec.vendor.toLowerCase());
             if (!target) continue; // new vendors are added by the full import
 
-            if (!nearlyEqual(Number(target.price) || 0, rec.price)) {
+            // A fresh reifen.com live price wins over the (older) AWIN feed price.
+            const liveAt = target.live_price_checked_at ? new Date(target.live_price_checked_at).getTime() : 0;
+            const keepLive =
+                isReifenComOffer(target) &&
+                target.price_source === "reifen.com-live" &&
+                liveAt && Date.now() - liveAt <= LIVE_PRICE_TTL_MS;
+            if (keepLive) {
+                target.awin_price = rec.price;
+            } else if (!nearlyEqual(Number(target.price) || 0, rec.price)) {
                 target.price = rec.price;
+                target.price_source = "awin";
                 changes++;
             }
-            if ((target.in_stock !== false) !== rec.in_stock) {
+            if (!keepLive && (target.in_stock !== false) !== rec.in_stock) {
                 target.in_stock = rec.in_stock;
                 changes++;
             }

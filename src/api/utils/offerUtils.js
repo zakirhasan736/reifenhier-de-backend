@@ -2,6 +2,7 @@
  * Offer helpers for AWIN CSV import.
  */
 import { pickRowPrice } from "./offerPricing.js";
+import { isReifenComRow } from "./reifenCom.js";
 
 export function normalizeVendorKey(offerOrRow) {
   const id = String(offerOrRow.vendor_id || offerOrRow.merchant_id || "").trim();
@@ -49,8 +50,7 @@ export function dedupeOffers(offers = []) {
 
 function preferReifenComFirst(rows = []) {
   return [...rows].sort((a, b) => {
-    const score = (row) =>
-      (row.merchant_name || "").trim().toLowerCase() === "reifen.com" ? 0 : 1;
+    const score = (row) => (isReifenComRow(row) ? 0 : 1);
     return score(a) - score(b);
   });
 }
