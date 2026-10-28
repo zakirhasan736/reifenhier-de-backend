@@ -7,6 +7,7 @@ import { startPriceAlertCron } from "./api/utils/priceAlertCron.js";
 import { startPushCampaignCron } from "./api/utils/pushCampaignCron.js";
 import { startReviewScraperCron } from "./api/utils/reviewScraperCron.js";
 import "./api/utils/cron-job-two.js";
+import { startAwinTransactionPoller } from "./api/adminAlerts/awinTransactionPoller.js";
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ async function bootstrap() {
         startPriceAlertCron();
         startPushCampaignCron();
         startReviewScraperCron();
+        startAwinTransactionPoller();
         console.log("[CRON] Cron jobs loaded (AWIN import, daily prices, reviews). Waiting for schedule...");
         setInterval(() => { }, 1 << 30);
     } catch (err) {

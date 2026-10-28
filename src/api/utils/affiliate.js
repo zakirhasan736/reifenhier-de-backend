@@ -10,6 +10,7 @@ import Product from '../../models/product.js'
 import Click from '../../models/click.js'
 import ProductInterest from '../../models/productInterest.js'
 import geoip from 'geoip-lite'
+import { notifyVendorClick } from '../adminAlerts/adminAlerts.service.js'
 
 const router = express.Router()
 
@@ -83,6 +84,7 @@ async function logVendorClick(req, {
   campaignId = '',
   awinAffiliateId = '',
   awinMerchantId = '',
+  isAwinLink = false,
 }) {
   if (!productId) return
 
@@ -139,6 +141,24 @@ async function logVendorClick(req, {
     awin_merchant_id: awinMerchantId || resolvedVendorId,
     clicked_at: new Date(),
   })
+
+  // Owner push: someone just left for a shop (fire-and-forget)
+  {
+    const offers = Array.isArray(product.offers) ? product.offers : []
+    const offer = offers.find(
+      o =>
+        (resolvedVendorId && String(o?.vendor_id) === String(resolvedVendorId)) ||
+        (resolvedVendor && o?.vendor === resolvedVendor)
+    )
+    notifyVendorClick({
+      productName: product.product_name,
+      vendor: resolvedVendor,
+      price: Number(offer?.price) || Number(product.search_price) || null,
+      source: from,
+      isAwinLink,
+      merchantId: awinMerchantId || resolvedVendorId,
+    }).catch(err => console.error('[ADMIN PUSH] click alert failed:', err?.message))
+  }
 
   // Price-alert interest (vendor click ≈ purchase intent for affiliate site)
   if (uuid && uuid !== 'guest') {
@@ -273,6 +293,13 @@ async function handleVendorExit(req, res, token) {
       campaignId,
       awinAffiliateId: extractAwinAffiliateId(exitUrl) || '',
       awinMerchantId: extractAwinMerchantId(exitUrl) || vendorId || '',
+      isAwinLink: (() => {
+        try {
+          return /(^|\.)awin1\.com$/i.test(new URL(exitUrl).hostname)
+        } catch {
+          return false
+        }
+      })(),
     })
   } catch (err) {
     if (err?.code === 8000 || /space quota/i.test(String(err?.message || ''))) {
