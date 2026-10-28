@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import Product from "../../models/product.js";
 import { getReifenRating } from "./reviewScraper.js";
+import { REIFEN_COM_VENDOR_REGEX } from "./reifenCom.js";
 
 dotenv.config();
 await mongoose.connect(process.env.MONGODB_URI);
@@ -48,7 +49,9 @@ async function scrapeWithRetry(product, maxRetries = 2) {
     console.log("🆕 Checking for new/incomplete Reifen.com products after AWIN sync...");
 
     const products = await LiveProduct.find({
-        vendor: "Reifen.com",
+        // was the exact string "Reifen.com" — any other spelling in the feed
+        // (e.g. "reifen.com") meant this scraper found no products at all.
+        vendor: REIFEN_COM_VENDOR_REGEX,
         merchant_deep_link: { $exists: true, $ne: null },
         $or: [
             { average_rating: { $exists: false } },

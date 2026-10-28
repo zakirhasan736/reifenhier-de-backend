@@ -14,7 +14,8 @@ import crypto from "crypto";
 import { nextPriceTrend, recordPriceSnapshots } from "../utils/priceHistory.js";
 import { heartbeat } from "../utils/importLock.js";
 // import { spawn } from "child_process";
-import { isCarTyreGroup, isValidVendor } from "../utils/validators.js";
+import { isCarTyreGroup, isValidVendor, isValidSecondCategory, isValidThirdCategory } from "../utils/validators.js";
+import { isReifenComRow, isReifenComOffer } from "../utils/reifenCom.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
 import { extractAwinAffiliateId, logAwinTrackingMismatch } from "../utils/awinTracking.js";
 import {
@@ -73,6 +74,7 @@ let importStatus = {
         missingEAN: 0,
     },
     vendors: [],
+    reifenCom: { rows: 0, carTyreRows: 0, products: 0, noAwinLink: 0, rejectedCategories: {} },
 };
 
 /* ---------------- Utilities ---------------- */
@@ -267,6 +269,25 @@ function feedFingerprint(prod) {
     return crypto.createHash("sha1").update(JSON.stringify([offers, fields, extra])).digest("hex");
 }
 
+const LIVE_PRICE_TTL_MS = Number(process.env.REIFEN_LIVE_PRICE_TTL_HOURS || 26) * 3600 * 1000;
+
+/** Copy a recent reifen.com live price onto the new reifen.com offer (same product). */
+function keepLiveReifenPrice(existingOffers = [], newOffers = []) {
+    const old = existingOffers.find(isReifenComOffer);
+    const neu = newOffers.find(isReifenComOffer);
+    if (!old || !neu || old.price_source !== "reifen.com-live") return false;
+    const checked = old.live_price_checked_at ? new Date(old.live_price_checked_at).getTime() : 0;
+    if (!checked || Date.now() - checked > LIVE_PRICE_TTL_MS) return false;
+    if (String(old.aw_product_id || "") !== String(neu.aw_product_id || "")) return false;
+    neu.awin_price = neu.price;
+    neu.price = old.price;
+    neu.price_source = "reifen.com-live";
+    neu.live_price_checked_at = old.live_price_checked_at;
+    neu.live_price_status = old.live_price_status;
+    if (typeof old.in_stock === "boolean") neu.in_stock = old.in_stock;
+    return true;
+}
+
 /** Count lines by scanning bytes in chunks (was: whole file read into one string). */
 async function countLines(filePath) {
     let n = 0;
@@ -330,6 +351,7 @@ export async function importAWINCsv(filePath) {
         debugLog: [],
         vendors: [],
         skipReasons: { invalidSecondCategory: 0, missingThirdCategory: 0, missingEAN: 0 },
+        reifenCom: { rows: 0, carTyreRows: 0, products: 0, noAwinLink: 0, rejectedCategories: {} },
     });
     return new Promise((resolve, reject) => {
         const rows = [];
@@ -386,6 +408,15 @@ export async function importAWINCsv(filePath) {
                 importStatus.progress = Math.round((rowCount / (importStatus.total || 1)) * 100);
 
                 if (row["merchant_name"]) vendorsFound.add(row["merchant_name"].trim());
+                if (isReifenComRow(row)) {
+                    const rc = importStatus.reifenCom;
+                    rc.rows++;
+                    if (isValidSecondCategory(row) && isValidThirdCategory(row)) rc.carTyreRows++;
+                    else {
+                        const cat = `${(row["merchant_product_second_category"] || "").trim() || "(empty)"} > ${(row["merchant_product_third_category"] || "").trim() || "(empty)"}`;
+                        rc.rejectedCategories[cat] = (rc.rejectedCategories[cat] || 0) + 1;
+                    }
+                }
 
                 if (!isValidVendor(row)) return;
 
@@ -430,10 +461,23 @@ export async function importAWINCsv(filePath) {
                             continue;
                         }
 
-                        let masterRow = vendorRowsFiltered.find(
-                            (r) => (r["merchant_name"] || "").trim().toLowerCase() === "reifen.com"
-                        );
-                        if (!masterRow) masterRow = vendorRowsFiltered[0];
+                        // reifen.com is the default vendor: product info always comes from
+                        // its car-tyre row (in stock first, then the lowest price — the same
+                        // row that becomes the reifen.com offer).
+                        const reifenRows = vendorRowsFiltered
+                            .filter((r) => isReifenComRow(r) && isValidSecondCategory(r) && isValidThirdCategory(r))
+                            .sort((a, b) =>
+                                (parseInStock(a["in_stock"]) ? 0 : 1) - (parseInStock(b["in_stock"]) ? 0 : 1) ||
+                                (pickOfferPrice(a) || Infinity) - (pickOfferPrice(b) || Infinity)
+                            );
+                        if (!reifenRows.length) {
+                            // reifen.com row exists but has no AWIN tracking link
+                            importStatus.skipped++;
+                            importStatus.reifenCom.noAwinLink++;
+                            continue;
+                        }
+                        const masterRow = reifenRows[0];
+                        importStatus.reifenCom.products++;
 
                         const vendorPrices = vendorRowsFiltered
                             .map((r) => pickOfferPrice(r))
@@ -661,11 +705,18 @@ export async function importAWINCsv(filePath) {
                         Object.assign(newProd, computeOfferStats(newProd.offers));
                         newProd.import_hash = feedFingerprint(newProd);
 
+                        // Keep a fresh reifen.com live price (syncReifenComPrices) instead of
+                        // reverting it to the older AWIN feed price. The hash above stays
+                        // feed-only, so feed changes are still detected.
+                        if (existing?.offers?.length && keepLiveReifenPrice(existing.offers, newProd.offers)) {
+                            Object.assign(newProd, computeOfferStats(newProd.offers));
+                        }
+
                         // ✅ Ensure slug exists for both insert and update paths
                         if (existing?.slug) {
                             newProd.slug = existing.slug; // keep existing slug for SEO stability
                         } else if (!newProd.slug) {
-                            newProd.slug = buildProductSlug(`reifencheckde`, newProd.brand_name, newProd.product_name, newProd.ean);
+                            newProd.slug = buildProductSlug(newProd.brand_name, newProd.product_name, newProd.ean);
                         }
 
                         if (existing) {
@@ -780,6 +831,15 @@ export async function importAWINCsv(filePath) {
                 console.log(
                     `✅ Import Summary: New: ${importStatus.imported}, Updated: ${importStatus.updated}, Skipped: ${importStatus.skipped}, Deleted: ${importStatus.deleted}`
                 );
+                const rc = importStatus.reifenCom;
+                console.log(
+                    `[reifen.com] feed rows: ${rc.rows}, car-tyre rows: ${rc.carTyreRows}, products: ${rc.products}, without AWIN link: ${rc.noAwinLink}`
+                );
+                const rejected = Object.entries(rc.rejectedCategories).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                if (rejected.length) {
+                    console.log("[reifen.com] rows NOT imported as car tyres (category → rows):");
+                    for (const [cat, n] of rejected) console.log(`   ${n}\t${cat}`);
+                }
 
 
                 await ImportMeta.findOneAndUpdate(
@@ -793,6 +853,13 @@ export async function importAWINCsv(filePath) {
                             deleted: importStatus.deleted || 0,
                             skipped: importStatus.skipped || 0,
                             stats: buildCoverageStats(grouped, products_seen),
+                            reifenCom: {
+                                ...importStatus.reifenCom,
+                                // array, not an object: category names can contain "."
+                                rejectedCategories: Object.entries(importStatus.reifenCom.rejectedCategories)
+                                    .sort((a, b) => b[1] - a[1]).slice(0, 20)
+                                    .map(([category, rows]) => ({ category, rows })),
+                            },
                         },
                     }
                 );

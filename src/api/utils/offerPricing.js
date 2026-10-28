@@ -6,6 +6,7 @@
  * site, the "best price" vendor and the AWIN link always agree.
  */
 import affiliateCloak from "./affiliateCloak.js";
+import { isReifenComOffer, reifenComFirst } from "./reifenCom.js";
 
 /**
  * Parse a price from an AWIN feed or a merchant page.
@@ -79,17 +80,22 @@ export function rankOffers(offers = []) {
       const sa = a.in_stock === false ? 1 : 0;
       const sb = b.in_stock === false ? 1 : 0;
       if (sa !== sb) return sa - sb;
-      return Number(a.price) - Number(b.price);
+      const diff = Number(a.price) - Number(b.price);
+      if (diff) return diff;
+      // Same price: reifen.com (default vendor) wins the tie.
+      return (isReifenComOffer(a) ? 0 : 1) - (isReifenComOffer(b) ? 0 : 1);
     });
 }
 
 /**
  * When at least one vendor has stock, hide vendors that explicitly report
  * no stock — otherwise "best price" sends people to a shop that can't sell.
+ * The reifen.com offer is never hidden: it is the default vendor and the
+ * product page always shows it (marked as not in stock when it isn't).
  */
 export function dropOutOfStockWhenAlternatives(offers = []) {
-  const inStock = offers.filter((o) => o.in_stock !== false);
-  return inStock.length ? inStock : offers;
+  const inStock = offers.filter((o) => o.in_stock !== false || isReifenComOffer(o));
+  return inStock.some((o) => o.in_stock !== false) ? inStock : offers;
 }
 
 function toDisplay(n) {
@@ -119,7 +125,9 @@ function cheapestVendorFrom(offer) {
  * Recompute per-offer savings and all product-level price fields.
  * Mutates offers' savings fields and returns the $set payload.
  */
-export function computeOfferStats(offers = []) {
+export function computeOfferStats(offersIn = []) {
+  // reifen.com (default vendor) is always listed first.
+  const offers = reifenComFirst(offersIn);
   const priced = offers.filter((o) => Number(o?.price) > 0);
   const prices = priced.map((o) => Number(o.price));
   const max = prices.length ? Math.max(...prices) : 0;
@@ -132,6 +140,7 @@ export function computeOfferStats(offers = []) {
   }
 
   const best = rankOffers(offers)[0] || null;
+  const reifenCom = offers.find(isReifenComOffer) || null;
   const cheapest = best ? Number(best.price) : 0;
   const expensive = max;
   const savings_amount = expensive > cheapest && cheapest > 0 ? +(expensive - cheapest).toFixed(2) : 0;
@@ -150,6 +159,9 @@ export function computeOfferStats(offers = []) {
     offer_count_display: offers.length > 1 ? `${offers.length} Angebote` : "1 Angebot",
     total_offers: offers.length,
     cheapest_vendor: cheapestVendorFrom(best),
+    // Default vendor shown on every product, even when someone else is cheaper.
+    default_vendor: cheapestVendorFrom(reifenCom),
+    reifen_com_price: reifenCom && Number(reifenCom.price) > 0 ? Number(reifenCom.price) : undefined,
     payment_methods: best?.payment_icons || [],
     delivery_cost: best?.delivery_cost,
     ...(best?.aw_deep_link ? { product_url: best.aw_deep_link } : {}),

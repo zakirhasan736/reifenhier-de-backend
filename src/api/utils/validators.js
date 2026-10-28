@@ -1,4 +1,5 @@
 import { hasAwinAffiliateLink } from "./offerUtils.js";
+import { isReifenComRow } from "./reifenCom.js";
 
 // export function isValidVendor(row, allowedVendor = 'reifencom') {
 //     const vendor = (row["merchant_name"] || "").toLowerCase().replace(/\s|\./g, "");
@@ -48,8 +49,7 @@ export function isValidThirdCategory(row) {
  * (Passes all others by default)
  */
 export function isCarTyreRow(row) {
-    const vendor = (row["merchant_name"] || "").trim().toLowerCase();
-    if (vendor === "reifen.com") {
+    if (isReifenComRow(row)) {
         // Only validate Reifen.com
         return isValidSecondCategory(row) && isValidThirdCategory(row);
     }
@@ -65,7 +65,7 @@ export function isCarTyreRow(row) {
 export function isCarTyreGroup(rows) {
     // Accept if any row is from Reifen.com and passes BOTH category validations
     return rows.some(row =>
-        (row["merchant_name"] || "").trim().toLowerCase() === "reifen.com"
+        isReifenComRow(row)
         && isValidSecondCategory(row)
         && isValidThirdCategory(row)
     );

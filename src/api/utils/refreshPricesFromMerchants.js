@@ -5,6 +5,7 @@ import axios from "axios";
 import pLimit from "p-limit";
 import Product from "../../models/product.js";
 import { computeOfferStats } from "./offerPricing.js";
+import { isReifenComOffer } from "./reifenCom.js";
 
 dotenv.config();
 
@@ -202,6 +203,8 @@ async function processProduct(prod) {
     await Promise.all(
         offers.map((offer) =>
             limitOffer(async () => {
+                // reifen.com has its own live sync (syncReifenComPrices.js).
+                if (isReifenComOffer(offer)) return;
                 const url = String(offer.merchant_deep_link || "").trim();
                 if (!/^https?:\/\//i.test(url)) return;
 

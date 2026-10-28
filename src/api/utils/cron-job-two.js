@@ -34,8 +34,12 @@ const DEFAULT_JOBS = [
     path.join(__dirname, "updatePricesIncremental.js"),
     // 2) Check availability & prune vendors/products
     path.join(__dirname, "purgeUnavailableOffers.js"),
-    // 3) Verify & refresh prices against merchant pages
+    // 3) Verify & refresh prices against merchant pages (other vendors)
     path.join(__dirname, "refreshPricesFromMerchants.js"),
+    // 4) reifen.com (default vendor): live price from every reifen.com product page
+    ...(String(process.env.REIFEN_SYNC_ENABLED ?? "true") === "true"
+        ? [path.join(__dirname, "syncReifenComPrices.js")]
+        : []),
 ];
 
 const JOBS = (process.env.CRON_JOBS || DEFAULT_JOBS.join(","))
