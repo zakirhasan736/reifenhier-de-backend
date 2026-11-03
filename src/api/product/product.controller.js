@@ -235,7 +235,20 @@ export const productSitemapSlugs = async (req, res) => {
         );
         const skip = (page - 1) * limit;
 
-        const filter = { slug: { $exists: true, $nin: [null, ''] } };
+        // Only products the frontend lets Google index (see isThinProduct in
+        // the frontend's productMeta.ts): brand + name + a positive price.
+        // Listing noindex pages in the sitemap triggers "Submitted URL marked
+        // noindex" in Search Console and wastes crawl budget.
+        const filter = {
+            slug: { $exists: true, $nin: [null, ''] },
+            brand_name: { $exists: true, $nin: [null, ''] },
+            product_name: { $exists: true, $nin: [null, ''] },
+            $or: [
+                { cheapest_offer: { $gt: 0 } },
+                { search_price: { $gt: 0 } },
+                { 'offers.price': { $gt: 0 } },
+            ],
+        };
 
         const [total, products] = await Promise.all([
             Product.countDocuments(filter),
