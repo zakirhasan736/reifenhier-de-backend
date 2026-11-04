@@ -17,6 +17,7 @@
     "test": "echo \"No tests specified\" && exit 0",
     "awin:coverage": "node scripts/awin-vendor-coverage.mjs",
     "blogs:seed-2026": "node scripts/seed-blogs-reifen-2026.mjs",
+    "blogs:seed-winter-preise": "node scripts/seed-blogs-winter-preise-2026.mjs",
     "awin:sync": "node scripts/awin-sync-now.mjs",
     "awin:check": "node scripts/awin-sync-now.mjs --check-only",
     "reifen:prices": "node src/api/utils/syncReifenComPrices.js",
