@@ -57,18 +57,30 @@ export const productLists = async (req, res) => {
             ...(req.query.priced && { cheapest_offer: { $gt: 0 } }),
         };
 
-        // ---- Apply price range to either search_price or main_price ----
-        if (lo !== undefined || hi !== undefined) {
-            const range = {};
-            if (lo !== undefined) range.$gte = lo;
-            if (hi !== undefined) range.$lte = hi;
+        // Filters without the price range: used for the slider bounds and
+        // histogram, so the slider never shrinks to the current selection.
+        const baseFilters = { ...filters };
 
-            // If both prices exist in DB, check either one is within range
+        // ---- Price range on the "ab" price the cards show ----
+        // cheapest_offer (best live offer) when known, else search_price.
+        const lo_ = Number.isFinite(lo) ? lo : undefined;
+        const hi_ = Number.isFinite(hi) ? hi : undefined;
+        if (lo_ !== undefined || hi_ !== undefined) {
+            const range = {};
+            if (lo_ !== undefined) range.$gte = lo_;
+            if (hi_ !== undefined) range.$lte = hi_;
             filters.$or = [
-                { search_price: range },
-                { main_price: range },
+                { cheapest_offer: { $gt: 0, ...range } },
+                { cheapest_offer: { $in: [null, 0] }, search_price: { $gt: 0, ...range } },
             ];
         }
+        const effectivePrice = {
+            $cond: [
+                { $gt: [{ $ifNull: ['$cheapest_offer', 0] }, 0] },
+                '$cheapest_offer',
+                { $ifNull: ['$search_price', { $ifNull: ['$main_price', 0] }] },
+            ],
+        };
 
         // -------- Sort mapping --------
         const sortFieldFinal = (sortField || sort || 'createdAt').toString();
@@ -110,17 +122,12 @@ export const productLists = async (req, res) => {
             ];
         }
 
-        // Price min/max from current filtered result set
+        // Price bounds for the slider: all other filters, NOT the price range
         facetStage.prices = [
-            { $match: filters },
-            {
-                $group: {
-                    _id: null,
-                    // use search_price if present, otherwise main_price
-                    min: { $min: { $ifNull: ['$search_price', '$main_price'] } },
-                    max: { $max: { $ifNull: ['$search_price', '$main_price'] } },
-                },
-            },
+            { $match: baseFilters },
+            { $project: { p: effectivePrice } },
+            { $match: { p: { $gt: 0 } } },
+            { $group: { _id: null, min: { $min: '$p' }, max: { $max: '$p' } } },
         ];
 
         // -------- Main query ----------
@@ -196,6 +203,33 @@ export const productLists = async (req, res) => {
         const result = agg[0] || {};
         const priceData = result.prices?.[0] || { min: 0, max: 0 };
 
+        // Price histogram (equal-width bins) for the slider, first page only
+        let priceHistogram;
+        const pMin = Math.floor(Number(priceData.min) || 0);
+        const pMax = Math.ceil(Number(priceData.max) || 0);
+        if (req.query.includeFilters && pMax > pMin) {
+            const BINS = 24;
+            const step = (pMax - pMin) / BINS;
+            const boundaries = Array.from({ length: BINS }, (_, i) => Math.round((pMin + i * step) * 100) / 100);
+            boundaries.push(pMax + 0.01);
+            try {
+                const buckets = await Product.aggregate([
+                    { $match: baseFilters },
+                    { $project: { p: effectivePrice } },
+                    { $match: { p: { $gt: 0 } } },
+                    { $bucket: { groupBy: '$p', boundaries, default: 'other', output: { count: { $sum: 1 } } } },
+                ]);
+                const counts = new Array(BINS).fill(0);
+                for (const b of buckets) {
+                    const i = boundaries.indexOf(b._id);
+                    if (i >= 0 && i < BINS) counts[i] = b.count;
+                }
+                priceHistogram = { min: pMin, max: pMax, bins: counts };
+            } catch {
+                priceHistogram = undefined;
+            }
+        }
+
         // IMPORTANT: return numbers, do NOT stringify them here
         // If you must format, do it in React UI.
         return res.status(200).json({
@@ -203,6 +237,7 @@ export const productLists = async (req, res) => {
             products,
             minPrices: Number(priceData.min) || 0,
             maxPrices: Number(priceData.max) || 0,
+            ...(priceHistogram && { priceHistogram }),
             filterGroups: {
                 kategories: result.categories || [],
                 brands: result.brands || [],
