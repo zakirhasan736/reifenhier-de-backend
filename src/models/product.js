@@ -218,4 +218,8 @@ ProductSchema.pre("save", function (next) {
   next();
 });
 
+// Lookups for legacy /go/<aw_product_id> paths (see goLookup.controller.js)
+ProductSchema.index({ "offers.aw_product_id": 1 });
+ProductSchema.index({ aw_product_id: 1 });
+
 export default mongoose.models.Product || mongoose.model("Product", ProductSchema);

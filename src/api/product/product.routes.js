@@ -7,6 +7,7 @@ import { getSeoLandings, getPriceHistory,
       uploadCsv, getProductDetails, getBrandSummary, updateFeaturedSettings, getLatestProducts, getFeaturedProducts, GetFilterTyres, getSearchSuggestions } from "./product.controller.js";
 import { getImportProgress } from "./importAWINCsv.js";
 import { googleMerchantFeed } from "./googleMerchantFeed.controller.js";
+import { goLookup } from "./goLookup.controller.js";
 const upload = multer({ dest: "uploads/" });
 
 const router = express.Router();
@@ -15,6 +16,7 @@ const router = express.Router();
 router.get("/", productLists);
 router.get("/product-lists", productLists);
 router.get("/sitemap-slugs", productSitemapSlugs);
+router.get("/go-lookup/:awProductId", goLookup);
 router.get("/product-details/:slug", getProductDetails);
 
 router.post("/upload-csv", upload.single("file"), uploadCsv);
