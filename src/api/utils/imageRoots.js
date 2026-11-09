@@ -11,27 +11,34 @@ import path from "path";
  * older guessed locations kept for existing files.
  */
 export function imageRoots({ create = false, onlyExisting = true } = {}) {
-    const roots = new Set();
-    const envBase = (process.env.LOCAL_IMAGE_DIR || "").trim();
-    if (envBase) roots.add(path.resolve(envBase.replace(/[/\\]product-image[/\\]?$/i, "")));
-    roots.add(path.resolve(process.cwd(), "../frontend/public/images"));
-    roots.add(path.resolve(process.cwd(), "../reifenhier-de-frontend/public/images"));
-    roots.add(path.resolve(process.cwd(), "../../frontend/public/images"));
+    // Explicit folders: LOCAL_IMAGE_DIR may hold one path or a ":"-separated list.
+    const explicit = String(process.env.LOCAL_IMAGE_DIR || "")
+        .split(path.delimiter)
+        .map((p) => p.trim())
+        .filter((p) => path.isAbsolute(p))
+        .map((p) => path.resolve(p.replace(/[/\\]product-image[/\\]?$/i, "")));
 
-    if (!onlyExisting && !create) return [...roots];
+    // The frontend checkout next to this backend (VPS: …/reifencheck/backend + /frontend).
+    const primary = [...explicit, path.resolve(process.cwd(), "../frontend/public/images")];
 
-    return [...roots].filter((root) => {
-        if (create) {
-            try {
-                fs.mkdirSync(path.join(root, "product-image"), { recursive: true });
-            } catch {
-                return false;
-            }
+    // Older guessed locations: read from them if they already exist (they may
+    // hold images saved before), but never create them.
+    const legacy = [
+        path.resolve(process.cwd(), "../reifenhier-de-frontend/public/images"),
+        path.resolve(process.cwd(), "../../frontend/public/images"),
+    ];
+
+    const isDir = (p) => {
+        try { return fs.statSync(p).isDirectory(); } catch { return false; }
+    };
+
+    const roots = [...new Set([...primary, ...legacy])];
+    if (!onlyExisting && !create) return roots;
+
+    return roots.filter((root) => {
+        if (create && primary.includes(root)) {
+            try { fs.mkdirSync(path.join(root, "product-image"), { recursive: true }); } catch { /* ignore */ }
         }
-        try {
-            return fs.statSync(root).isDirectory();
-        } catch {
-            return false;
-        }
+        return isDir(root);
     });
 }
