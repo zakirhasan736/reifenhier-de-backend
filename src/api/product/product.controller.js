@@ -285,6 +285,33 @@ export const productSitemapSlugs = async (req, res) => {
             ],
         };
 
+        // Indexing focus: ~33k product pages sit in "Crawled - currently not
+        // indexed" because thousands of size variants look alike to Google.
+        // Pages that compare 2+ shops are the ones with unique value, so the
+        // sitemap lists those only. Single-shop pages stay live, linked and
+        // indexable — they're just not pushed. SITEMAP_MIN_OFFERS=1 restores
+        // the previous behaviour.
+        const minOffers = Math.max(
+            1,
+            parseInt(String(process.env.SITEMAP_MIN_OFFERS || '2'), 10) || 2
+        );
+        if (minOffers > 1) {
+            filter.$expr = {
+                $gte: [
+                    {
+                        $size: {
+                            $filter: {
+                                input: { $ifNull: ['$offers', []] },
+                                as: 'o',
+                                cond: { $gt: ['$$o.price', 0] },
+                            },
+                        },
+                    },
+                    minOffers,
+                ],
+            };
+        }
+
         const [total, products] = await Promise.all([
             Product.countDocuments(filter),
             Product.find(filter)

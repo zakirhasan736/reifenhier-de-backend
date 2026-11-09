@@ -26,6 +26,20 @@ import adminAlertsRoutes from './api/adminAlerts/adminAlerts.routes.js';
 
 const app = express();
 
+// api.reifexa.de is data, not pages: keep every response out of Google's index
+// ("Not found (404)" listed https://api.reifexa.de/). A header, not a robots.txt
+// block, because Googlebot still has to fetch the API while rendering
+// www.reifexa.de pages. Product images under /images stay indexable.
+app.use((req, res, next) => {
+    if (!req.path.startsWith('/images/')) {
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    }
+    next();
+});
+app.get('/', (_req, res) => {
+    res.json({ ok: true, service: 'reifexa-api', site: 'https://www.reifexa.de' });
+});
+
 app.get('/health', (_req, res) => {
     res.json({
         ok: true,
