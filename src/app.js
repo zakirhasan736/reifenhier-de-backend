@@ -5,6 +5,7 @@ import './loadEnv.js'
 import express from 'express';
 import cors from 'cors';
 import path from "path";
+import { imageRoots } from "./api/utils/imageRoots.js";
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import { isMongoReady } from './config/db.js';
@@ -108,6 +109,17 @@ app.use('/api/favorites', favoriteRoutes);
 app.use('/api/wishlist', wishlistRoutes)
 app.use('/api/blogs', blogRoutes);
 app.use('/api/newsletter', newsletterRoutes);
+// Downloaded AWIN product images. They live in the frontend's public/images,
+// but Next.js only serves files that existed at build time, so new images
+// 404'd until the next deploy. The frontend forwards misses here
+// (next.config rewrites → fallback), and this serves them straight from disk.
+// All candidate folders, even ones the image job creates after start-up.
+for (const root of imageRoots({ onlyExisting: false })) {
+    app.use('/images/product-image', express.static(path.join(root, 'product-image'), {
+        maxAge: '30d',
+        index: false,
+    }));
+}
 app.use('/images', express.static(path.join(process.cwd(), 'src', 'images')));
 
 
