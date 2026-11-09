@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import { isLocalProductImagePath } from "./offerUtils.js";
+import { imageRoots } from "./imageRoots.js";
 
 dotenv.config();
 
@@ -44,17 +45,7 @@ function isHostAllowed(host) {
     return SOURCE_HOSTS.some(h => host === h || host.endsWith(`.${h}`));
 }
 
-const envBase = (process.env.LOCAL_IMAGE_DIR || "").trim();
-
-function imageRoots() {
-    const roots = new Set();
-    if (envBase) roots.add(path.resolve(envBase.replace(/[/\\]product-image[/\\]?$/i, "")));
-    roots.add(path.resolve(process.cwd(), "../reifenhier-de-frontend/public/images"));
-    roots.add(path.resolve(process.cwd(), "../../frontend/public/images"));
-    return [...roots];
-}
-
-const IMAGE_ROOTS = imageRoots();
+const IMAGE_ROOTS = imageRoots({ create: true });
 const now = new Date();
 const YEAR = String(now.getFullYear());
 const MONTH = String(now.getMonth() + 1).padStart(2, "0");
@@ -90,13 +81,36 @@ function localFileExists(relPath) {
     });
 }
 
-function sourceUrl(prod) {
-    const awin = String(prod.awin_image_url || "").trim();
+/**
+ * Every image URL the AWIN feed gave us for this product, best first. The
+ * first one is often dead (merchant removed it), so the job tries them in
+ * order until one downloads as a real image.
+ */
+function sourceUrls(prod) {
     const current = String(prod.product_image || "").trim();
-    if (/^https?:\/\//i.test(awin)) return awin;
-    if (/^https?:\/\//i.test(current) && !current.includes("/images/product-image/")) return current;
-    return "";
+    const raw = [
+        prod.awin_image_url,
+        current.includes("/images/product-image/") ? "" : current,
+        prod.large_image,
+        prod.merchant_image_url,
+        ...(Array.isArray(prod.gallery_images) ? prod.gallery_images : []),
+        prod.alternate_image,
+        prod.aw_thumb_url,
+        prod.merchant_thumb_url,
+    ];
+    const seen = new Set();
+    const out = [];
+    for (const v of raw) {
+        const url = String(v || "").trim();
+        if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+        seen.add(url);
+        out.push(url);
+    }
+    return out;
 }
+
+// Feeds sometimes return a 1×1 pixel or tiny "no image" icon with status 200.
+const MIN_IMAGE_SIDE = Number(process.env.MIN_IMAGE_SIDE || 60);
 
 async function fetchBufferWithChecks(url, { timeout = 20000 } = {}) {
     const host = hostnameOf(url);
@@ -143,6 +157,12 @@ async function downloadAndConvertToWebP(imageUrl, outFileBase) {
     for (let i = 1; i <= attempts; i++) {
         try {
             const buffer = await fetchBufferWithChecks(imageUrl);
+            const meta = await sharp(buffer).metadata();
+            if (!meta.width || !meta.height || Math.min(meta.width, meta.height) < MIN_IMAGE_SIDE) {
+                // Placeholder pixel: no point retrying this URL.
+                console.warn(`[Download] Placeholder-sized image (${meta.width}x${meta.height}): ${imageUrl}`);
+                return null;
+            }
             const webpBuf = await sharp(buffer).webp({ quality: WEBP_QUALITY }).toBuffer();
             let written = 0;
             for (const root of IMAGE_ROOTS) {
@@ -204,9 +224,18 @@ async function main() {
                     { product_image: { $type: "string", $regex: /^https?:\/\//i } },
                     { product_image: { $type: "string", $regex: /^\/images\/product-image\//i } },
                     { awin_image_url: { $type: "string", $regex: /^https?:\/\//i } },
+                    { "gallery_images.0": { $type: "string", $regex: /^https?:\/\//i } },
+                    { large_image: { $type: "string", $regex: /^https?:\/\//i } },
+                    { merchant_image_url: { $type: "string", $regex: /^https?:\/\//i } },
+                    { aw_thumb_url: { $type: "string", $regex: /^https?:\/\//i } },
+                    { merchant_thumb_url: { $type: "string", $regex: /^https?:\/\//i } },
                 ],
             },
-            { product_image: 1, awin_image_url: 1, _id: 1, ean: 1, product_name: 1 }
+            {
+                product_image: 1, awin_image_url: 1, _id: 1, ean: 1, product_name: 1,
+                large_image: 1, merchant_image_url: 1, gallery_images: 1,
+                alternate_image: 1, aw_thumb_url: 1, merchant_thumb_url: 1,
+            }
         ).lean();
 
         const total = candidates.length;
@@ -219,6 +248,7 @@ async function main() {
 
         const limit = pLimit(CONCURRENCY);
         let done = 0, ok = 0, fail = 0, skipped = 0, restored = 0;
+        const noImage = [];
 
         let interrupted = false;
         process.on("SIGINT", () => {
@@ -252,9 +282,10 @@ async function main() {
                             return;
                         }
 
-                        const downloadFrom = sourceUrl(prod);
-                        if (!downloadFrom) {
+                        const urls = sourceUrls(prod);
+                        if (!urls.length) {
                             fail++;
+                            noImage.push(prod.ean || String(prod._id));
                             return;
                         }
 
@@ -262,19 +293,28 @@ async function main() {
                         const safeEan = prod.ean ? String(prod.ean).replace(/[^a-z0-9]/gi, "") : String(prod._id);
                         const base = `${safeName}-${safeEan}`;
 
-                        const result = await downloadAndConvertToWebP(downloadFrom, base);
+                        let result = null;
+                        let downloadFrom = "";
+                        for (const url of urls) {
+                            result = await downloadAndConvertToWebP(url, base);
+                            if (result) { downloadFrom = url; break; }
+                        }
                         if (!result) {
+                            // Nothing downloadable: keep a remote URL so the site still
+                            // tries the AWIN image in the browser.
                             const restoredOk = await restoreAwinUrl({
                                 ...prod,
-                                awin_image_url: prod.awin_image_url || downloadFrom,
+                                awin_image_url: prod.awin_image_url || urls[0],
                             });
                             if (restoredOk) restored++;
                             else fail++;
+                            noImage.push(prod.ean || String(prod._id));
                         } else {
                             ok++;
                             const relPath = toRelImagePath(result.filename, YEAR, MONTH);
                             const $set = { product_image: relPath };
-                            if (!prod.awin_image_url && downloadFrom) $set.awin_image_url = downloadFrom;
+                            // Point the AWIN fallback at the image that actually works.
+                            if (downloadFrom && downloadFrom !== prod.awin_image_url) $set.awin_image_url = downloadFrom;
                             await LiveProduct.updateOne({ _id: prod._id }, { $set });
                         }
                     } finally {
@@ -289,6 +329,10 @@ async function main() {
 
         await mongoose.disconnect();
         console.log(`\n🎉 Completed. Ok: ${ok}, Restored AWIN: ${restored}, Skipped: ${skipped}, Failed: ${fail}, Total: ${total}\n`);
+        if (noImage.length) {
+            console.log(`🖼️  ${noImage.length} products have no downloadable image in the feed (first 50 EANs):`);
+            console.log(noImage.slice(0, 50).join(", "));
+        }
     } catch (err) {
         console.error("\n❌ Fatal error:", err?.message || err);
         process.exit(1);
