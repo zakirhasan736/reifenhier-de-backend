@@ -28,6 +28,10 @@ const blogSchema = new mongoose.Schema(
         tags: [String],
         metaDescription: String,
 
+        // Reader stats shown under the article title
+        views: { type: Number, default: 0 },        // total article views
+        readSeconds: { type: Number, default: 0 },  // total time readers spent on the article
+
         // ⚠️ now nested: array of array of blocks
         contentBlocks: [[contentBlockSchema]],
     },

@@ -6,6 +6,7 @@ import {
     getSingleBlog,
     updateBlog,
     deleteBlog,
+    trackBlogStats,
     upload,
 } from './blog.controller.js';
 
@@ -17,6 +18,7 @@ router.put('/update/:id', upload.single('coverImage'), updateBlog);
 router.delete('/delete/:id', deleteBlog);
 router.get('/list', getAllBlogs);
 router.get('/slug/:slug', getSingleBlog);
+router.post('/track/:slug', trackBlogStats);
 router.get('/:id', getBlogById);
 
 
