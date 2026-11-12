@@ -182,6 +182,33 @@ export const getSingleBlog = async (req, res) => {
 };
   
   
+// Reader stats: POST /api/blogs/track/:slug  { view: true }  or  { seconds: 42 }
+const BOT_UA = /bot|crawl|spider|slurp|headless|lighthouse|preview|monitor/i;
+const MAX_SECONDS_PER_PING = 1200; // one visit can add at most 20 min
+
+export const trackBlogStats = async (req, res) => {
+    try {
+        if (BOT_UA.test(req.get('user-agent') || '')) return res.status(204).end();
+
+        const slug = decodeURIComponent(req.params.slug || '');
+        const seconds = Math.min(
+            Math.max(Math.round(Number(req.body?.seconds) || 0), 0),
+            MAX_SECONDS_PER_PING
+        );
+        const inc = {};
+        if (req.body?.view === true) inc.views = 1;
+        if (seconds > 0) inc.readSeconds = seconds;
+        if (!slug || !Object.keys(inc).length) return res.status(204).end();
+
+        // timestamps:false keeps updatedAt untouched, so "Aktualisiert" does not change on every view
+        await Blog.updateOne({ slug }, { $inc: inc }, { timestamps: false });
+        res.status(204).end();
+    } catch (err) {
+        console.error('Error tracking blog stats:', err?.message);
+        res.status(204).end();
+    }
+};
+
 // Get single blog (for detail or edit)
 export const getBlogById = async (req, res) => {
     try {

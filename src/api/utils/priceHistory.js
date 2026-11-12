@@ -108,5 +108,9 @@ export async function loadPriceHistory(ean, days = 90) {
     }
     const best = series.get(BEST_KEY) || { key: BEST_KEY, vendor: "Bester Preis", points: [] };
     series.delete(BEST_KEY);
-    return { from, to: today, best, vendors: [...series.values()] };
+    // first day we ever recorded a best price for this tyre ("Preis aufgezeichnet seit …")
+    const first = await PriceHistory.findOne({ ean: String(ean), vendor_key: BEST_KEY }, { _id: 0, day: 1 })
+        .sort({ day: 1 })
+        .lean();
+    return { from, to: today, since: first?.day || null, best, vendors: [...series.values()] };
 }
