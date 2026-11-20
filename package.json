@@ -14,7 +14,7 @@
     "repair:offers": "node scripts/repair-product-offers.mjs",
     "repair:vendors": "node scripts/repair-vendor-assets.mjs",
     "build": "echo \"✔ No build step required for plain Node.js\"",
-    "test": "echo \"No tests specified\" && exit 0",
+    "test": "node --test \"tests/*.test.*\"",
     "awin:coverage": "node scripts/awin-vendor-coverage.mjs",
     "blogs:seed-2026": "node scripts/seed-blogs-reifen-2026.mjs",
     "blogs:seed-winter-preise": "node scripts/seed-blogs-winter-preise-2026.mjs",

@@ -627,7 +627,6 @@ export async function importAWINCsv(filePath) {
                             rating: reviewFields.rating,
                             model_number: masterRow["model_number"],
                             isbn: masterRow["isbn"],
-                            upc: masterRow["upc"],
                             parent_product_id: masterRow["parent_product_id"],
                             product_GTIN: masterRow["product_GTIN"] || masterRow["gtin"],
                             basket_link: masterRow["basket_link"],
