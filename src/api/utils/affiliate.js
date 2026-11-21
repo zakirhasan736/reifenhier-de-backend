@@ -85,6 +85,8 @@ async function logVendorClick(req, {
   awinAffiliateId = '',
   awinMerchantId = '',
   isAwinLink = false,
+  trafficSource = '',
+  trafficChannel = '',
 }) {
   if (!productId) return
 
@@ -136,6 +138,8 @@ async function logVendorClick(req, {
     browser: ctx.browser,
     os: ctx.os,
     clickref,
+    traffic_source: trafficSource,
+    traffic_channel: trafficChannel,
     campaign_id: campaignId,
     awin_affiliate_id: awinAffiliateId,
     awin_merchant_id: awinMerchantId || resolvedVendorId,
@@ -292,6 +296,9 @@ async function handleVendorExit(req, res, token) {
       }
     })(),
     campaignId,
+    // set by the site from the visitor's session (see TrafficSource on the frontend)
+    trafficSource: String(req.query.src || '').slice(0, 60),
+    trafficChannel: String(req.query.ch || '').slice(0, 20),
     awinAffiliateId: extractAwinAffiliateId(exitUrl) || '',
     awinMerchantId: extractAwinMerchantId(exitUrl) || vendorId || '',
     isAwinLink: (() => {

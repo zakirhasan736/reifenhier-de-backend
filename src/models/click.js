@@ -18,6 +18,8 @@ const clickSchema = new mongoose.Schema(
         brand_id: String,
 
         clickref: String,
+        traffic_source: { type: String, index: true }, // where the visitor came from (ChatGPT, Google, …)
+        traffic_channel: String,                       // ai | search | social | referral | direct …
         campaign_id: String,
         awin_affiliate_id: String,
         awin_merchant_id: String,
