@@ -273,40 +273,41 @@ async function handleVendorExit(req, res, token) {
     affiliateId: process.env.AWIN_AFFILIATE_ID,
   })
 
-  try {
-    await logVendorClick(req, {
-      productId,
-      uuid,
-      from,
-      vendor,
-      vendorId,
-      brandName: brand,
-      instruction,
-      behavior,
-      clickref: (() => {
-        try {
-          return new URL(exitUrl).searchParams.get('clickref') || ''
-        } catch {
-          return ''
-        }
-      })(),
-      campaignId,
-      awinAffiliateId: extractAwinAffiliateId(exitUrl) || '',
-      awinMerchantId: extractAwinMerchantId(exitUrl) || vendorId || '',
-      isAwinLink: (() => {
-        try {
-          return /(^|\.)awin1\.com$/i.test(new URL(exitUrl).hostname)
-        } catch {
-          return false
-        }
-      })(),
-    })
-  } catch (err) {
+  // Log the click in the background: the shopper is redirected immediately and a slow,
+  // full or unreachable database can never block the way to the shop (lost sale).
+  logVendorClick(req, {
+    productId,
+    uuid,
+    from,
+    vendor,
+    vendorId,
+    brandName: brand,
+    instruction,
+    behavior,
+    clickref: (() => {
+      try {
+        return new URL(exitUrl).searchParams.get('clickref') || ''
+      } catch {
+        return ''
+      }
+    })(),
+    campaignId,
+    awinAffiliateId: extractAwinAffiliateId(exitUrl) || '',
+    awinMerchantId: extractAwinMerchantId(exitUrl) || vendorId || '',
+    isAwinLink: (() => {
+      try {
+        return /(^|\.)awin1\.com$/i.test(new URL(exitUrl).hostname)
+      } catch {
+        return false
+      }
+    })(),
+  }).catch(err => {
     if (err?.code === 8000 || /space quota/i.test(String(err?.message || ''))) {
+      console.error('[vendor exit] click not logged – MongoDB storage quota reached')
       return
     }
-    console.error('Click logging failed:', err)
-  }
+    console.error('Click logging failed:', err?.message || err)
+  })
 
   setExitHeaders(res)
   return res.redirect(302, exitUrl)
