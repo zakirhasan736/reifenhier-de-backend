@@ -1,7 +1,6 @@
 import { isMongoReady } from '../../config/db.js'
 import { Vehicle, vehicleKey } from '../fitment/data.js'
 import Product from '../../models/product.js'
-import CarSizeCache from '../../models/carSizeCache.js'
 import { llmJson, llmAvailable } from './llm.js'
 import { SEASON_CATEGORY, pickThree, factsFor, grade, noiseDb, brandTier } from './scoring.js'
 
@@ -227,7 +226,7 @@ export async function readTyrePhoto(dataUrl) {
 }
 
 /**
- * Car → tyre sizes from the local catalogue, with clearly labelled AI suggestions on misses.
+ * Car → tyre sizes from the reviewed local catalogue.
  */
 export async function carSizes({ make, model, year }) {
   make = String(make || '').trim().slice(0, 40)
@@ -245,31 +244,5 @@ export async function carSizes({ make, model, year }) {
     })
     return { source: 'reifexa', sizes, note: 'Variantenabhängige Größen. Bitte CoC, Achse und Last-/Geschwindigkeitsindex prüfen.' }
   }
-  const cacheKey = `${make}|${model}|${year}`.toLowerCase()
-  const cached = await CarSizeCache.findOne({ key: cacheKey }).lean().catch(() => null)
-  if (cached?.sizes?.length) {
-    return { source: 'ai', generation: cached.generation || '', sizes: cached.sizes, cached: true, note: 'Typische Größen für dieses Modell – bitte vor dem Kauf auf deiner Reifenflanke oder im CoC-Papier prüfen.' }
-  }
-  const out = await llmJson({
-    system:
-      'Du kennst die werksseitigen Reifengrößen von Autos auf dem deutschen Markt. Nenne nur Größen, die für dieses Modell üblich sind. Wenn du unsicher bist, gib weniger Größen an. Antworte nur mit JSON.',
-    prompt: `Auto: ${make} ${model}${year ? ` Baujahr ${year}` : ''}. JSON: {"sizes":[{"width":"205","height":"55","diameter":"16","loadIndex":"91","speedIndex":"V"}],"generation":"z. B. Golf 7 (2012–2019)"} – höchstens 5 Größen, häufigste zuerst.`,
-    maxTokens: 350,
-  })
-  const sizes = (Array.isArray(out?.sizes) ? out.sizes : []).filter(s => s && /^\d{3}$/.test(s.width) && /^\d{2}$/.test(s.height) && /^\d{2}$/.test(s.diameter)).slice(0, 5)
-  if (!sizes.length) return { error: llmAvailable() ? 'unknown_car' : 'ai_not_configured' }
-  if (isMongoReady() && !vehicle?.reviewed) {
-    const candidates = sizes.map(({ width, height, diameter }) => `${width}/${height} R${diameter}`)
-    await Vehicle.updateOne({ key }, {
-      $setOnInsert: { make, model },
-      $addToSet: { candidates: { $each: candidates } },
-    }, { upsert: true }).catch(err => console.error('[searchlight] fitment candidate:', err.code))
-  }
-  CarSizeCache.updateOne({ key: cacheKey }, { $set: { generation: out.generation || '', sizes, source: 'ai', createdAt: new Date() } }, { upsert: true }).catch(() => {})
-  return {
-    source: 'ai',
-    generation: out.generation || '',
-    sizes,
-    note: 'Typische Größen für dieses Modell – bitte vor dem Kauf auf deiner Reifenflanke oder im CoC-Papier prüfen.',
-  }
+  return { error: 'unknown_car' }
 }

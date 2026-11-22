@@ -2,21 +2,16 @@
 ### German vehicle fitment
 
 The initial target list is a curated catalogue of 302 model families for the
-German market. Load the model names into the review queue, or generate size
-suggestions in the same pass. Both commands can be resumed safely.
+German market. Load the names into the review queue with MongoDB configured.
 
 ```sh
 node scripts/seed-fitments.mjs scripts/fitment-models-de.json --catalogue 302
-node scripts/seed-fitments.mjs scripts/fitment-models-de.json --suggest 302
 ```
 
-Set `MONGODB_URI`. Suggestions also require a valid Searchlight provider key
-and `SEARCHLIGHT_MODEL`. Each uncached model can trigger a billable AI call.
-The suggestion pass writes review candidates. Confirm each fitment against
-manufacturer or CoC documentation that permits the intended use, then enter
-the variant, inclusive year range, axle, size and source at `/admin-fitment`
-with an existing admin JWT. Only reviewed fitments with records are published.
-The existing Searchlight AI fallback remains advisory and can add candidates.
+Enter fitments from original measurements or sources permitted for the
+intended use and resale. Record the variant, year range, axle, size and source
+at `/admin-fitment` with an existing admin JWT. The website finder and
+commercial API read reviewed records from Reifexa's database.
 
 The public website links to `/auto-api`. Applications capture the business
 email, plan, accepted terms version and requested public egress addresses.
