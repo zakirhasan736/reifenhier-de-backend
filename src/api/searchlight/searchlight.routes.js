@@ -34,7 +34,7 @@ const wrap = fn => async (req, res) => {
   }
 }
 
-router.get('/status', (_req, res) => res.json({ ai: llmAvailable(), carData: Boolean(process.env.WHEEL_SIZE_API_KEY) }))
+router.get('/status', (_req, res) => res.json({ ai: llmAvailable(), carData: true }))
 
 router.post('/recommend', limit('rec', 40), wrap(async (req, res) => res.json(await recommend(req.body || {}))))
 

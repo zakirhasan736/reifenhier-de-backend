@@ -7,11 +7,6 @@ const { pickThree, brandTier, grade, speedRank } = await import('../src/api/sear
 const { parseJson } = await import('../src/api/searchlight/llm.js')
 const svc = await import('../src/api/searchlight/searchlight.service.js')
 const { default: Product } = await import('../src/models/product.js')
-const { default: CarSizeCache } = await import('../src/models/carSizeCache.js')
-const cacheWrites = []
-CarSizeCache.findOne = () => ({ lean: async () => null })
-CarSizeCache.updateOne = async (...a) => { cacheWrites.push(a); return {} }
-
 const P = (id, brand, price, wet, fuel, db, li = '91', si = 'H', offers = 3) => ({
   _id: id, slug: id, brand_name: brand, product_name: `${brand} ${id}`, width: '205', height: '55', diameter: '16',
   lastIndex: li, speedIndex: si, merchant_product_third_category: 'Winterreifen', wet_grip: wet, fuel_class: fuel,
@@ -84,24 +79,11 @@ test('photo and car without AI give clear errors', async () => {
   assert.equal((await svc.carSizes({ make: 'VW', model: '' })).error, 'missing_car')
 })
 
-test('AI path (mocked Anthropic): car sizes are validated', async () => {
-  process.env.ANTHROPIC_API_KEY = 'test'
-  const realFetch = globalThis.fetch
-  globalThis.fetch = async (url, opts) => {
-    assert.match(String(url), /anthropic/)
-    const body = JSON.parse(opts.body)
-    assert.ok(body.model)
-    return new Response(JSON.stringify({ content: [{ type: 'text', text: '{"generation":"Golf 7","sizes":[{"width":"205","height":"55","diameter":"16","loadIndex":"91","speedIndex":"V"},{"width":"xx","height":"1","diameter":"9"}]}' }] }), { status: 200 })
-  }
-  try {
-    const r = await svc.carSizes({ make: 'VW', model: 'Golf', year: '2016' })
-    assert.equal(r.source, 'ai')
-    assert.equal(r.sizes.length, 1)
-    assert.match(r.note, /prüfen/)
-    assert.equal(cacheWrites.length, 1)
-    assert.equal(cacheWrites[0][0].key, 'vw|golf|2016')
-  } finally {
-    globalThis.fetch = realFetch
-    delete process.env.ANTHROPIC_API_KEY
-  }
+test('vehicle lookup on a catalogue miss never calls a provider', async t => {
+  const externalFetch = t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('Vehicle lookup must only use local data')
+  })
+  const result = await svc.carSizes({ make: 'VW', model: 'Golf', year: '2016' })
+  assert.equal(result.error, 'unknown_car')
+  assert.equal(externalFetch.mock.callCount(), 0)
 })
