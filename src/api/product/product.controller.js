@@ -557,20 +557,23 @@ export const getProductDetails = async (req, res) => {
             _id: { $ne: product._id }
         };
 
-        const conditions = [];
+        const hasSize = [productWidth, productHeight, productDiameter].every(value => /^\d+$/.test(value));
+        const finalMatch = {
+            ...baseMatch,
+            ...(hasSize ? {
+                $or: [
+                    { width: productWidth, height: productHeight, diameter: productDiameter },
+                    {
+                        dimensions: new RegExp(
+                            `^\\s*${productWidth}\\s*[/-]\\s*${productHeight}(?:\\s*[/-]\\s*Z?R?\\s*|\\s*Z?R\\s*|\\s+)${productDiameter}C?\\s*$`,
+                            'i',
+                        ),
+                    }
+                ],
+            } : {}),
+        };
 
-        if (width) conditions.push({ dimensions: new RegExp(`^${width}[ /-]`) });
-        if (height) conditions.push({ dimensions: new RegExp(`[ /-]${height}[ /-]`) });
-        if (diameter) conditions.push({ dimensions: new RegExp(`R?${diameter}$`, 'i') });
-        if (speedIndex) conditions.push({ product_name: new RegExp(`\\d{2,3}${speedIndex}`, 'i') });
-        if (lastIndex) conditions.push({ product_name: new RegExp(`\\b${lastIndex}[A-Z]{1,2}\\b`, 'i') });
-
-        const finalMatch = { ...baseMatch };
-        if (conditions.length) {
-            finalMatch.$and = conditions;
-        }
-
-        const related = await Product.aggregate([
+        const related = hasSize ? await Product.aggregate([
             { $match: finalMatch },
             {
                 $project: {
@@ -589,6 +592,11 @@ export const getProductDetails = async (req, res) => {
                     merchant_product_third_category: 1,
                     in_stock: 1,
                     dimensions: 1,
+                    width: 1,
+                    height: 1,
+                    diameter: 1,
+                    lastIndex: 1,
+                    speedIndex: 1,
                     fuel_class: 1,
                     wet_grip: 1,
                     noise_class: 1,
@@ -598,7 +606,7 @@ export const getProductDetails = async (req, res) => {
                     price_trend: 1,
                 },
             },
-            { $sort: { createdAt: -1, search_price: 1 } },
+            { $sort: { search_price: 1, _id: 1 } },
             { $limit: 80 },
             {
                 $group: {
@@ -607,8 +615,9 @@ export const getProductDetails = async (req, res) => {
                 }
             },
             { $replaceRoot: { newRoot: "$doc" } },
+            { $sort: { search_price: 1, _id: 1 } },
             { $limit: 10 }
-        ], { allowDiskUse: true });
+        ], { allowDiskUse: true }) : [];
 
         const relatedProducts = related.map(p => {
             const stats = liveOfferStats(p.offers);
