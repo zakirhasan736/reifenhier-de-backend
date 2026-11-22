@@ -6,6 +6,7 @@ import pLimit from "p-limit";
 import Product from "../../models/product.js";
 import { computeOfferStats } from "./offerPricing.js";
 import { isReifenComOffer } from "./reifenCom.js";
+import { applyShopPrice } from "./merchantLivePrice.js";
 
 dotenv.config();
 
@@ -21,8 +22,10 @@ const HTTP_TIMEOUT_MS = Number(process.env.PRICE_REFRESH_TIMEOUT_MS || 15000);
 const MAX_HTML_BYTES = Number(process.env.PRICE_REFRESH_MAX_HTML_BYTES || 2 * 1024 * 1024);
 // If true, do not write to DB, only log what would change
 const DRY_RUN = String(process.env.PRICE_REFRESH_DRY_RUN || "false").toLowerCase() === "true";
-// Overwrite AWIN prices with merchant-page prices? (default: no, verify only)
-const APPLY = String(process.env.PRICE_REFRESH_APPLY || "false").toLowerCase() === "true";
+// Show the price from the shop's own page instead of the (often older) AWIN
+// feed price. Default ON: visitors must see the price they will pay at the shop.
+// PRICE_REFRESH_APPLY=false → verify only (record merchant_price, change nothing).
+const APPLY = String(process.env.PRICE_REFRESH_APPLY || "true").toLowerCase() === "true";
 // Flag offers whose merchant price differs from AWIN by more than this
 const MISMATCH_RATIO = Number(process.env.PRICE_MISMATCH_RATIO || 0.03);
 // Never apply a merchant price that differs by more than this (likely wrong scrape)
@@ -171,6 +174,7 @@ const projection = {
     savings_badge: 1,
     offer_count_display: 1,
     cheapest_vendor: 1,
+    import_hash: 1,
 };
 
 async function countCandidates() {
@@ -212,17 +216,8 @@ async function processProduct(prod) {
                 if (!(livePrice > 0)) return;
                 checked++;
 
-                const feed = Number(offer.price) || 0;
-                const diffRatio = feed > 0 ? Math.abs(livePrice - feed) / feed : 1;
-                offer.merchant_price = livePrice;
-                offer.merchant_price_checked_at = new Date();
-                offer.price_mismatch = diffRatio > MISMATCH_RATIO;
-
-                if (APPLY && diffRatio > 0 && diffRatio <= MAX_APPLY_RATIO && Math.abs(livePrice - feed) >= 0.01) {
-                    offer.price = livePrice;
-                    offer.price_mismatch = false;
-                    priceChanges++;
-                }
+                // Show the shop's own price (within limits); see merchantLivePrice.js
+                if (applyShopPrice(offer, livePrice, { apply: APPLY, mismatchRatio: MISMATCH_RATIO, maxApplyRatio: MAX_APPLY_RATIO })) priceChanges++;
             })
         )
     );
@@ -240,8 +235,11 @@ async function processProduct(prod) {
         return { changed: true, update, dryRun: true };
     }
 
-    await LiveProduct.updateOne({ _id: prod._id }, { $set: update });
-    return { changed: true, update, dryRun: false };
+    // Only write if the AWIN import has not rewritten this product while we
+    // were reading the shop pages (it would otherwise be reverted).
+    const res = await LiveProduct.updateOne({ _id: prod._id, import_hash: prod.import_hash ?? null }, { $set: update });
+    if (!res.matchedCount) return { changed: false, raced: true };
+    return { changed: true, priceChanges, update, dryRun: false };
 }
 
 async function main() {
@@ -260,6 +258,8 @@ async function main() {
         let processed = 0;
         let updated = 0;
         let skipped = 0;
+        let pricesChanged = 0;
+        let raced = 0;
 
         for (let skip = 0; skip < total; skip += BATCH_SIZE) {
             const batch = await fetchBatch(skip, BATCH_SIZE);
@@ -278,6 +278,8 @@ async function main() {
                 processed++;
                 if (r.changed) updated++;
                 else skipped++;
+                pricesChanged += r.priceChanges || 0;
+                if (r.raced) raced++;
 
                 if (processed % 50 === 0 || processed === total) {
                     const left = Math.max(0, total - processed);
@@ -290,7 +292,8 @@ async function main() {
 
         process.stdout.write("\n");
         console.log(
-            `\n🎉 Done. Updated: ${updated}, Skipped: ${skipped}, Total: ${total}${DRY_RUN ? " (dry-run)" : ""}`
+            `\n🎉 Done. Checked products: ${updated}, shop prices applied/changed: ${pricesChanged}, skipped: ${skipped}, ` +
+            `rewritten by import meanwhile: ${raced}, total: ${total}${DRY_RUN ? " (dry-run)" : ""}${APPLY ? "" : " (verify only)"}`
         );
 
         await mongoose.disconnect();

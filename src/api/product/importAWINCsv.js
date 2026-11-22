@@ -12,6 +12,7 @@ import affiliateCloak from "../utils/affiliateCloak.js";
 import { getVendorPaymentIcons } from "../utils/vendorPaymentIcons.js";
 import crypto from "crypto";
 import { nextPriceTrend, recordPriceSnapshots } from "../utils/priceHistory.js";
+import { keepMerchantPrices } from "../utils/merchantLivePrice.js";
 import { heartbeat } from "../utils/importLock.js";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor, isValidSecondCategory, isValidThirdCategory } from "../utils/validators.js";
@@ -707,8 +708,12 @@ export async function importAWINCsv(filePath) {
                         // Keep a fresh reifen.com live price (syncReifenComPrices) instead of
                         // reverting it to the older AWIN feed price. The hash above stays
                         // feed-only, so feed changes are still detected.
-                        if (existing?.offers?.length && keepLiveReifenPrice(existing.offers, newProd.offers)) {
-                            Object.assign(newProd, computeOfferStats(newProd.offers));
+                        // Same for other shops: a fresh price read from the shop's own page
+                        // (refreshPricesFromMerchants, every 5 h) stays until the feed changes.
+                        if (existing?.offers?.length) {
+                            const keptReifen = keepLiveReifenPrice(existing.offers, newProd.offers);
+                            const keptShops = keepMerchantPrices(existing.offers, newProd.offers);
+                            if (keptReifen || keptShops) Object.assign(newProd, computeOfferStats(newProd.offers));
                         }
 
                         // ✅ Ensure slug exists for both insert and update paths

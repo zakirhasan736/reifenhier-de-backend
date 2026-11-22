@@ -20,6 +20,7 @@ import {
 } from "./offerPricing.js";
 import { hasAwinAffiliateLink } from "./offerUtils.js";
 import { isReifenComOffer } from "./reifenCom.js";
+import { keepMerchantPrice } from "./merchantLivePrice.js";
 import { nextPriceTrend, recordPriceSnapshots } from "./priceHistory.js";
 
 dotenv.config();
@@ -139,7 +140,9 @@ async function processGroupBatch(eanToRowsMap, counters) {
                 isReifenComOffer(target) &&
                 target.price_source === "reifen.com-live" &&
                 liveAt && Date.now() - liveAt <= LIVE_PRICE_TTL_MS;
-            if (keepLive) {
+            // A fresh price from the shop's own page stays while the feed is unchanged.
+            const keepShopPrice = !keepLive && keepMerchantPrice(target, rec.price);
+            if (keepLive || keepShopPrice) {
                 target.awin_price = rec.price;
             } else if (!nearlyEqual(Number(target.price) || 0, rec.price)) {
                 target.price = rec.price;
