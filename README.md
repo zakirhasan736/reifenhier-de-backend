@@ -1,11 +1,11 @@
 # reifenhier-de-backend
 ### German vehicle fitment
 
-The initial target list is a curated catalogue of 302 model families for the
-German market. Load the names into the review queue with MongoDB configured.
+The initial target list is a curated catalogue of 800 model names across 51 makes for the
+German market, including current and older nameplates. The list is curated and has not been ranked by vehicle registrations. Load the names into the review queue with MongoDB configured.
 
 ```sh
-node scripts/seed-fitments.mjs scripts/fitment-models-de.json --catalogue 302
+node scripts/seed-fitments.mjs scripts/fitment-models-de.json --catalogue
 ```
 
 Enter fitments from original measurements or sources permitted for the
