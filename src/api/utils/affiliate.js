@@ -201,8 +201,8 @@ async function logVendorClick(req, {
               : {}),
             clickedAt: new Date(),
             ...(isPurchaseCta ? { purchaseIntentAt: new Date() } : {}),
-            notifyEnabled: true,
           },
+          $setOnInsert: { notifyEnabled: false },
           $addToSet: {
             sources: isPurchaseCta ? 'purchase_intent' : 'vendor_click',
           },

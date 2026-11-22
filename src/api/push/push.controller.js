@@ -149,8 +149,7 @@ export async function trackInterest(req, res) {
       lastPrice: price,
       lastVendorPrices: vendorPrices,
       lastOfferCount: vendorPrices.length,
-      notifyEnabled:
-        typeof notifyEnabled === 'boolean' ? notifyEnabled : true,
+      ...(source === 'price_alert' && typeof notifyEnabled === 'boolean' ? { notifyEnabled } : {}),
     }
 
     if (source === 'view') setFields.viewedAt = now
@@ -177,6 +176,7 @@ export async function trackInterest(req, res) {
       { uuid, productId },
       {
         $set: setFields,
+        ...(Object.hasOwn(setFields, 'notifyEnabled') ? {} : { $setOnInsert: { notifyEnabled: false } }),
         $addToSet: { sources: source },
       },
       { upsert: true, new: true }

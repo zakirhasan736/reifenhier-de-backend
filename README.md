@@ -1,7 +1,7 @@
 # reifenhier-de-backend
 ### German vehicle fitment
 
-The initial target list is a curated catalogue of 800 model names across 51 makes for the
+The initial target list is a curated catalogue of 866 model names across 64 makes for the
 German market, including current and older nameplates. The list is curated and has not been ranked by vehicle registrations. Load the names into the review queue with MongoDB configured.
 
 ```sh
