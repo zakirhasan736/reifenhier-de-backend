@@ -1,3 +1,5 @@
+import { isMongoReady } from '../../config/db.js'
+import { Vehicle, vehicleKey } from '../fitment/data.js'
 import Product from '../../models/product.js'
 import CarSizeCache from '../../models/carSizeCache.js'
 import { llmJson, llmAvailable } from './llm.js'
@@ -225,43 +227,23 @@ export async function readTyrePhoto(dataUrl) {
 }
 
 /**
- * Car → tyre sizes. Uses the Wheel-Size API (EU market) when WHEEL_SIZE_API_KEY is set,
- * otherwise the AI with a clear "please confirm on the sidewall" note.
+ * Car → tyre sizes from the local catalogue, with clearly labelled AI suggestions on misses.
  */
 export async function carSizes({ make, model, year }) {
   make = String(make || '').trim().slice(0, 40)
   model = String(model || '').trim().slice(0, 60)
   year = String(year || '').replace(/\D/g, '').slice(0, 4)
   if (!make || !model) return { error: 'missing_car' }
-  const key = process.env.WHEEL_SIZE_API_KEY
-  if (key) {
-    try {
-      const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-      const u = new URL('https://api.wheel-size.com/v2/search/by_model/')
-      u.searchParams.set('make', slug(make))
-      u.searchParams.set('model', slug(model))
-      if (year) u.searchParams.set('year', year)
-      u.searchParams.set('region', 'eudm')
-      u.searchParams.set('user_key', key)
-      const r = await fetch(u, { signal: AbortSignal.timeout(10000) })
-      if (r.ok) {
-        const j = await r.json()
-        const sizes = new Map()
-        for (const mod of j.data || []) {
-          for (const wh of mod.wheels || []) {
-            const t = wh.front?.tire_full || wh.front?.tire
-            const mm = /(\d{3})\/(\d{2})\s*Z?R(\d{2})\s*(\d{2,3})?([A-Z])?/.exec(t || '')
-            if (mm) {
-              const k = `${mm[1]}/${mm[2]} R${mm[3]}`
-              if (!sizes.has(k)) sizes.set(k, { width: mm[1], height: mm[2], diameter: mm[3], loadIndex: mm[4] || '', speedIndex: mm[5] || '', original: Boolean(wh.is_stock) })
-            }
-          }
-        }
-        if (sizes.size) return { source: 'wheel-size', sizes: [...sizes.values()].slice(0, 8), note: 'Werksfreigaben laut Fahrzeugdaten.' }
-      } else console.error('[searchlight] wheel-size', r.status)
-    } catch (err) {
-      console.error('[searchlight] wheel-size failed:', err?.message || err)
-    }
+  const key = vehicleKey(make, model)
+  const vehicle = isMongoReady() ? await Vehicle.findOne({ key }).lean().catch(() => null) : null
+  const fitments = (vehicle?.fitments || []).filter(record =>
+    !year || (record.yearFrom <= Number(year) && record.yearTo >= Number(year)))
+  if (vehicle?.reviewed && fitments.length) {
+    const sizes = [...new Set(fitments.map(record => record.size))].map(size => {
+      const [width, height, diameter] = size.split(/[/ R]+/)
+      return { width, height, diameter }
+    })
+    return { source: 'reifexa', sizes, note: 'Variantenabhängige Größen. Bitte CoC, Achse und Last-/Geschwindigkeitsindex prüfen.' }
   }
   const cacheKey = `${make}|${model}|${year}`.toLowerCase()
   const cached = await CarSizeCache.findOne({ key: cacheKey }).lean().catch(() => null)
@@ -274,8 +256,15 @@ export async function carSizes({ make, model, year }) {
     prompt: `Auto: ${make} ${model}${year ? ` Baujahr ${year}` : ''}. JSON: {"sizes":[{"width":"205","height":"55","diameter":"16","loadIndex":"91","speedIndex":"V"}],"generation":"z. B. Golf 7 (2012–2019)"} – höchstens 5 Größen, häufigste zuerst.`,
     maxTokens: 350,
   })
-  const sizes = (out?.sizes || []).filter(s => /^\d{3}$/.test(s.width) && /^\d{2}$/.test(s.height) && /^\d{2}$/.test(s.diameter)).slice(0, 5)
+  const sizes = (Array.isArray(out?.sizes) ? out.sizes : []).filter(s => s && /^\d{3}$/.test(s.width) && /^\d{2}$/.test(s.height) && /^\d{2}$/.test(s.diameter)).slice(0, 5)
   if (!sizes.length) return { error: llmAvailable() ? 'unknown_car' : 'ai_not_configured' }
+  if (isMongoReady() && !vehicle?.reviewed) {
+    const candidates = sizes.map(({ width, height, diameter }) => `${width}/${height} R${diameter}`)
+    await Vehicle.updateOne({ key }, {
+      $setOnInsert: { make, model },
+      $addToSet: { candidates: { $each: candidates } },
+    }, { upsert: true }).catch(err => console.error('[searchlight] fitment candidate:', err.code))
+  }
   CarSizeCache.updateOne({ key: cacheKey }, { $set: { generation: out.generation || '', sizes, source: 'ai', createdAt: new Date() } }, { upsert: true }).catch(() => {})
   return {
     source: 'ai',
