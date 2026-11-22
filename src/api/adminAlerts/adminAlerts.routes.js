@@ -8,6 +8,7 @@ import {
   getAlertsSummary,
 } from './adminAlerts.service.js'
 import { getVapidPublicKey } from '../push/push.service.js'
+import { getTrackingCheck } from './trackingCheck.js'
 
 const router = express.Router()
 
@@ -83,6 +84,17 @@ router.post('/test', requireOwner, async (_req, res) => {
 router.get('/summary', requireOwner, async (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90)
   res.json(await getAlertsSummary(days))
+})
+
+/** GET /api/admin-alerts/tracking-check?days=30 — per-vendor link + sale tracking check */
+router.get('/tracking-check', requireOwner, async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 90)
+  try {
+    res.json(await getTrackingCheck(days))
+  } catch (err) {
+    console.error('[tracking-check] failed:', err?.message || err)
+    res.status(500).json({ error: 'tracking_check_failed' })
+  }
 })
 
 /**
