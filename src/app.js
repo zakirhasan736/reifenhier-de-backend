@@ -29,6 +29,8 @@ import adminAlertsRoutes from './api/adminAlerts/adminAlerts.routes.js';
 
 import { router as fitmentRoutes, adminRouter as fitmentAdminRoutes } from './api/fitment/routes.js';
 
+import { reviewRoutes, reviewAdminRoutes } from './api/reviews/reviews.routes.js';
+
 const app = express();
 
 // api.reifexa.de is data, not pages: keep every response out of Google's index
@@ -109,6 +111,8 @@ app.use('/api/admin-alerts', adminAlertsRoutes);
 app.use('/api/traffic', trafficRoutes);
 app.use('/api/fitment', fitmentRoutes);
 app.use('/api/admin/fitment', fitmentAdminRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/admin/reviews', reviewAdminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);

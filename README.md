@@ -13,6 +13,22 @@ intended use and resale. Record the variant, year range, axle, size and source
 at `/admin-fitment` with an existing admin JWT. The website finder and
 commercial API read reviewed records from Reifexa's database.
 
+To validate and then import source-reviewed fitments in bulk, supply a JSON
+array of objects containing `make`, `model` and a `fitments` array. Each
+fitment needs `variant`, `yearFrom`, `yearTo` (inclusive), `size`, `axle`
+(`front`, `rear`, or `both`) and `source`. Repeated imports merge matching
+records into the listed model without creating duplicates. Run `--check`
+without a database to validate the file.
+
+```sh
+node scripts/import-reviewed-fitments.mjs reviewed.json --check
+node scripts/import-reviewed-fitments.mjs reviewed.json --apply
+```
+
+Use `GET /api/fitment/v1/vehicles?make=VW&model=Golf&year=2018` with an
+approved API key and IP to filter by model year. It also accepts a tyre size
+to find the model variants with that size in the requested year.
+
 The public website links to `/auto-api`. Applications capture the business
 email, plan, accepted terms version and requested public egress addresses.
 Review the application, invoice paid plans manually and approve access after

@@ -4,7 +4,7 @@ import { isIP } from 'node:net'
 import ipaddr from 'ipaddr.js'
 import { rateLimit } from 'express-rate-limit'
 import { adminAuth } from '../../middleware/auth.js'
-import { Access, Vehicle, normalizeSize, plans, termsVersion, vehicleKey } from './data.js'
+import { Access, Vehicle, normalizeSize, normalizeFitment, validFitment, plans, termsVersion, vehicleKey } from './data.js'
 
 export const router = Router()
 export const adminRouter = Router()
@@ -62,13 +62,16 @@ router.get('/v1/vehicles', handle(async (req, res) => {
   if (!account) return res.status(401).json({ error: 'invalid_key' })
   if (!account.requestedIps.includes(sourceIp(req))) return res.status(403).json({ error: 'ip_not_allowed' })
 
-  const { size, make, model } = req.query
+  const { size, make, model, year } = req.query
+  const modelYear = year === undefined ? undefined : Number(year)
   const normalized = size === undefined ? undefined : normalizeSize(size)
   const offset = Number(req.query.offset ?? 0)
   const limit = Number(req.query.limit ?? 25)
   if (normalized === null || !Number.isSafeInteger(offset) || offset < 0 ||
       !Number.isInteger(limit) || limit < 1 || limit > 100 ||
       [make, model].some(value => value !== undefined && (typeof value !== 'string' || value.length > 100)) ||
+      (year !== undefined && (typeof year !== 'string' || !/^\d{4}$/.test(year) ||
+        modelYear < 1950 || modelYear > new Date().getUTCFullYear() + 1)) ||
       (model && !make)) return res.status(400).json({ error: 'invalid_query' })
 
   const plan = plans[account.plan]
@@ -82,7 +85,12 @@ router.get('/v1/vehicles', handle(async (req, res) => {
   const rows = await Vehicle.find(catalogue).select(projection).sort({ _id: 1 }).limit(plan.models).lean()
   const [brand, name] = vehicleKey(make, model).split(':')
   const matches = rows.filter(row => (!brand || row.key.startsWith(`${brand}:`)) && (!name || row.key === `${brand}:${name}`))
-    .map(row => ({ ...row, fitments: normalized ? row.fitments.filter(record => record.size === normalized) : row.fitments }))
+    .map(row => ({
+      ...row,
+      fitments: row.fitments.filter(record =>
+        (!normalized || record.size === normalized) &&
+        (modelYear === undefined || (record.yearFrom <= modelYear && record.yearTo >= modelYear))),
+    }))
     .filter(row => row.fitments.length)
   res.json({ vehicles: matches.slice(offset, offset + limit), total: matches.length, offset, limit })
 }))
@@ -99,16 +107,10 @@ adminRouter.get('/vehicles', handle(async (req, res) => {
 adminRouter.put('/vehicles/:id', handle(async (req, res) => {
   const records = req.body?.fitments
   if (!/^[a-f0-9]{24}$/i.test(req.params.id) || !Array.isArray(records) || records.length > 100 ||
-      records.some(record => !record || !normalizeSize(record.size) ||
-        typeof record.variant !== 'string' || !record.variant.trim() || record.variant.length > 160 ||
-        !Number.isInteger(record.yearFrom) || !Number.isInteger(record.yearTo) ||
-        record.yearFrom < 1950 || record.yearTo > new Date().getUTCFullYear() + 1 || record.yearFrom > record.yearTo ||
-        !['front', 'rear', 'both'].includes(record.axle) || typeof record.source !== 'string' ||
-        !record.source.trim() || record.source.length > 500)) {
+      !records.every(validFitment)) {
     return res.status(400).json({ error: 'invalid_fitments' })
   }
-  const fitments = records.map(({ size, variant, yearFrom, yearTo, axle, source }) =>
-    ({ size: normalizeSize(size), variant: variant.trim(), yearFrom, yearTo, axle, source: source.trim() }))
+  const fitments = records.map(normalizeFitment)
   const row = await Vehicle.findByIdAndUpdate(req.params.id, { fitments, reviewed: true }, { new: true, runValidators: true })
   res.status(row ? 200 : 404).json(row || { error: 'not_found' })
 }))

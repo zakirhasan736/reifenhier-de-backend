@@ -14,6 +14,19 @@ export function vehicleKey(make, model) {
   return `${({ volkswagen: 'vw', mercedesbenz: 'mercedes' })[brand] || brand}:${normalize(model)}`
 }
 
+export function validFitment(record) {
+  return Boolean(record && normalizeSize(record.size) &&
+    typeof record.variant === 'string' && record.variant.trim() && record.variant.length <= 160 &&
+    Number.isInteger(record.yearFrom) && Number.isInteger(record.yearTo) &&
+    record.yearFrom >= 1950 && record.yearTo <= new Date().getUTCFullYear() + 1 && record.yearFrom <= record.yearTo &&
+    ['front', 'rear', 'both'].includes(record.axle) &&
+    typeof record.source === 'string' && record.source.trim() && record.source.length <= 500)
+}
+
+export function normalizeFitment({ size, variant, yearFrom, yearTo, axle, source }) {
+  return { size: normalizeSize(size), variant: variant.trim(), yearFrom, yearTo, axle, source: source.trim() }
+}
+
 const fitmentSchema = new mongoose.Schema({
   key: { type: String, required: true, unique: true },
   make: { type: String, required: true },
