@@ -23,7 +23,7 @@ async function bootstrap() {
         startPushCampaignCron();
         startReviewScraperCron();
         startAwinTransactionPoller();
-        console.log("[CRON] Cron jobs loaded (AWIN import, daily prices, reviews). Waiting for schedule...");
+        console.log("[CRON] Cron jobs loaded (AWIN product import every 3 h, shop prices every 5 h, reviews). Waiting for schedule...");
         setInterval(() => { }, 1 << 30);
     } catch (err) {
         console.error("[CRON ERROR]", err);

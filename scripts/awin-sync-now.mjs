@@ -134,7 +134,7 @@ async function readFeed(file) {
 async function verify(feed) {
   log("Comparing every shop's prices on reifexa with the feed…");
   const db = new Map();
-  const docs = await Product.find({}, { ean: 1, "offers.vendor": 1, "offers.price": 1, "offers.in_stock": 1 }).lean();
+  const docs = await Product.find({}, { ean: 1, "offers.vendor": 1, "offers.price": 1, "offers.in_stock": 1, "offers.price_source": 1, "offers.awin_price": 1 }).lean();
   for (const d of docs) db.set(String(d.ean), d.offers || []);
 
   const report = [];
@@ -149,7 +149,10 @@ async function verify(feed) {
       const o = offers.find((x) => String(x.vendor || "").trim().toLowerCase() === k);
       if (!o) { offerHidden++; continue; }
       onSite++;
-      if (Math.abs(Number(o.price) - f.price) < 0.01) match++;
+      // A price read from the shop's own page is shown on purpose; compare the
+      // feed price it replaced (awin_price) instead.
+      const live = (o.price_source === "merchant-live" || o.price_source === "reifen.com-live") && Number(o.awin_price) > 0;
+      if (Math.abs(Number(live ? o.awin_price : o.price) - f.price) < 0.01) match++;
       else {
         differ++;
         if (mismatches.length < 30) mismatches.push({ shop: s.name, ean, reifexa: Number(o.price), feed: f.price });

@@ -2,7 +2,8 @@
  * cron-job.js — AWIN CSV import + optional scraper
  * - Downloads AWIN_CSV_URL (ZIP) and imports into MongoDB
  * - Prevents overlapping runs
- * - 3h cooldown between successful full imports
+ * - runs every 3 h (AWIN_IMPORT_INTERVAL_MIN), counted from the last start
+ * - shop-page prices: see cron-job-two.js (every 5 h)
  */
 
 import cron from "node-cron";
@@ -25,6 +26,8 @@ const MONGO_URI = process.env.MONGODB_URI;
 
 const RETRY_DELAY_MS = 2 * 60 * 1000;
 const SUCCESS_DELAY_MS = Number(process.env.AWIN_IMPORT_INTERVAL_MIN || 180) * 60 * 1000; // 3h between full imports
+const MIN_GAP_MS = Number(process.env.AWIN_IMPORT_MIN_GAP_MIN || 30) * 60 * 1000;
+let lastWait = 0; // minutes until the next import (logged once an hour, not every 5 min)
 const IMPORT_TIMEOUT_MS = Number(process.env.AWIN_IMPORT_TIMEOUT_MS || 3 * 60 * 60 * 1000);
 const TEMP_DIR = path.join(os.tmpdir(), "awin-csvs");
 
@@ -123,15 +126,19 @@ async function attemptCsvImport() {
         await releaseStaleLock();
     }
 
-    if (now - lastSuccess < SUCCESS_DELAY_MS) {
-        const minutesLeft = Math.ceil(
-            (SUCCESS_DELAY_MS - (now - lastSuccess)) / 60000
-        );
-        console.log(`[CRON] ⏸ Skipping: next AWIN import in ~${minutesLeft} min.`);
+    // Every AWIN_IMPORT_INTERVAL_MIN (default 3 h) counted from the START of the
+    // last successful import (was: from its end, so a 1 h import meant a 4 h
+    // cycle), and at least MIN_GAP after it finished.
+    const lastStarted = meta?.lastStarted ? new Date(meta.lastStarted).getTime() : 0;
+    const base = lastStarted && lastStarted <= lastSuccess ? lastStarted : lastSuccess;
+    const nextAt = Math.max(base + SUCCESS_DELAY_MS, lastSuccess + MIN_GAP_MS);
+    if (now < nextAt) {
+        lastWait = Math.ceil((nextAt - now) / 60000);
         return;
     }
 
     isRunning = true;
+    lastWait = 0;
 
     try {
         await removeDuplicateEANs();
@@ -239,8 +246,10 @@ cron.schedule("*/5 * * * *", async () => {
         console.log("[CRON] ⏳ Still running — skipping this tick.");
         return;
     }
-    console.log("[CRON] 🕒 Checking AWIN import schedule...");
     await attemptCsvImport();
+    if (!isRunning && lastWait && new Date().getMinutes() < 5) {
+        console.log(`[CRON] ⏸ Next AWIN product import in ~${lastWait} min.`);
+    }
 });
 
-console.log("[CRON] ✅ Scheduled AWIN import + scraper every 5 min (3h cooldown).");
+console.log(`[CRON] ✅ AWIN product import (new / updated / deleted products + feed prices) every ${SUCCESS_DELAY_MS / 3600000} h.`);

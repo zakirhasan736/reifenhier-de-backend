@@ -5,6 +5,8 @@
 #   bash scripts/vps-update.sh sync       # only: import AWIN feed now + verify every shop's prices
 #   bash scripts/vps-update.sh check      # only: compare prices on reifexa with the AWIN feed (no import)
 #   bash scripts/vps-update.sh status     # is an AWIN import running right now?
+#   bash scripts/vps-update.sh schedule   # last / next AWIN import and price cycle
+#   bash scripts/vps-update.sh prices     # update prices from the shop pages NOW (+ reifen.com)
 #   bash scripts/vps-update.sh restart-cron  # restart awin-cron, but only when it is not importing
 #   bash scripts/vps-update.sh backend    # pull + restart backend only
 #   bash scripts/vps-update.sh frontend   # pull + build + restart frontend only
@@ -106,9 +108,11 @@ case "$MODE" in
   sync)     sync_awin "$@" ;;
   status)   (cd "$BACKEND" && node scripts/awin-sync-now.mjs --status) || true ;;
   restart-cron) restart_cron_when_idle ;;
+  schedule) (cd "$BACKEND" && node scripts/price-sync-now.mjs --status) ;;
+  prices)   (cd "$BACKEND" && node scripts/price-sync-now.mjs "$@") ;;
   check)    (cd "$BACKEND" && node scripts/awin-sync-now.mjs --check-only "$@") ;;
   *)
-    echo "Usage: bash scripts/vps-update.sh [all|sync|check|status|restart-cron|backend|frontend] [--vendor NAME]"
+    echo "Usage: bash scripts/vps-update.sh [all|sync|prices|schedule|check|status|restart-cron|backend|frontend] [--vendor NAME]"
     exit 2
     ;;
 esac

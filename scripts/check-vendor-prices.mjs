@@ -64,7 +64,7 @@ await new Promise((resolve, reject) => {
 });
 
 await mongoose.connect(process.env.MONGODB_URI);
-let checked = 0, ok = 0, missingInFeed = 0;
+let checked = 0, ok = 0, missingInFeed = 0, liveShown = 0;
 const mismatches = [];
 const cursor = Product.find({}, { ean: 1, slug: 1, offers: 1 }).lean().cursor();
 for await (const p of cursor) {
@@ -75,7 +75,10 @@ for await (const p of cursor) {
     const rows = feed.get(`${p.ean}|${vendor}`);
     if (!rows) { missingInFeed++; continue; }
     const best = rows.filter((r) => r.inStock).sort((a, b) => a.price - b.price)[0] || rows.sort((a, b) => a.price - b.price)[0];
-    if (Math.abs(Number(o.price) - best.price) < 0.01) ok++;
+    // Shop-page prices (merchant-live / reifen.com-live) replace the feed price on purpose.
+    const live = (o.price_source === "merchant-live" || o.price_source === "reifen.com-live") && Number(o.awin_price) > 0;
+    if (live) liveShown++;
+    if (Math.abs(Number(live ? o.awin_price : o.price) - best.price) < 0.01) ok++;
     else mismatches.push({ slug: p.slug, vendor: o.vendor, site: Number(o.price), feed: best.price, diff: +(Number(o.price) - best.price).toFixed(2) });
   }
 }
@@ -84,7 +87,7 @@ fs.unlinkSync(file);
 
 const dupes = [...feed.entries()].filter(([, r]) => new Set(r.map((x) => x.price)).size > 1);
 console.log(`\nOffers checked: ${checked}${vendorFilter ? ` (${vendorFilter})` : ""}`);
-console.log(`  match feed:      ${ok}`);
+console.log(`  match feed:      ${ok}  (of these, ${liveShown} show the newer price from the shop's own page)`);
 console.log(`  price differs:   ${mismatches.length}`);
 console.log(`  not in feed now: ${missingInFeed}  (removed by the shop; next import drops them)`);
 console.log(`Feed duplicates (same EAN + shop, different prices): ${dupes.length}`);
