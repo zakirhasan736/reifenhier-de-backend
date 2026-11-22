@@ -29,7 +29,7 @@ warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*"; }
 pull_repo() {  # $1 = dir; prints "changed" if package-lock.json changed
   local dir="$1" before after
   before=$(git -C "$dir" rev-parse HEAD:package-lock.json 2>/dev/null || echo none)
-  git -C "$dir" pull --ff-only >&2
+  git -C "$dir" pull --ff-only >&2 || return 1
   after=$(git -C "$dir" rev-parse HEAD:package-lock.json 2>/dev/null || echo none)
   [ "$before" != "$after" ] && echo changed || true
 }
@@ -43,17 +43,23 @@ frontend_pm2_name() {
 
 update_backend() {
   say "Backend: git pull"
-  if [ "$(pull_repo "$BACKEND")" = "changed" ]; then
+  local lock_change
+  lock_change=$(pull_repo "$BACKEND") || return 1
+  if [ "$lock_change" = "changed" ]; then
     say "Backend: dependencies changed → npm ci"
     (cd "$BACKEND" && npm ci --omit=dev)
   fi
   say "Backend: restart API"
-  pm2 restart reifexa-api --update-env || warn "pm2 process 'reifexa-api' not found"
+  pm2 restart reifexa-api --update-env || return 1
+  say "Backend: verify review API"
+  (cd "$BACKEND" && node scripts/check-review-api.mjs)
 }
 
 update_frontend() {
   say "Frontend: git pull"
-  if [ "$(pull_repo "$FRONTEND")" = "changed" ]; then
+  local lock_change
+  lock_change=$(pull_repo "$FRONTEND") || return 1
+  if [ "$lock_change" = "changed" ]; then
     say "Frontend: dependencies changed → npm ci"
     (cd "$FRONTEND" && npm ci)
   fi
