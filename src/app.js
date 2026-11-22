@@ -23,6 +23,7 @@ import affiliateRouter from './api/utils/affiliate.js';
 import newsletterRoutes from './api/newsletter/newsletter.route.js';
 import analyticsRoutes from './api/analytics/analytics.routes.js';
 import pushRoutes from './api/push/push.routes.js';
+import searchlightRoutes from './api/searchlight/searchlight.routes.js';
 import adminAlertsRoutes from './api/adminAlerts/adminAlerts.routes.js';
 
 const app = express();
@@ -92,6 +93,8 @@ console.log('✅ Allowed CORS Origins:', uniqueOrigins);
 
 // --- CORS CONFIG END --- //
 app.use(cookieParser());
+// Searchlight accepts tyre photos (≤ 4 MB JSON) – mounted before the global 100 kB JSON parser
+app.use('/api/searchlight', express.json({ limit: '4mb' }), searchlightRoutes);
 app.use(express.json());
 app.use(morgan('dev'));
 
