@@ -9,9 +9,10 @@
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 
+/** Anthropic is the default; OpenAI only when explicitly chosen (or as the sole key). */
 export function provider() {
   const p = (process.env.SEARCHLIGHT_PROVIDER || '').toLowerCase()
-  if (p === 'anthropic' || p === 'openai') return p
+  if (p === 'openai' && process.env.OPENAI_API_KEY) return 'openai'
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic'
   if (process.env.OPENAI_API_KEY) return 'openai'
   return null

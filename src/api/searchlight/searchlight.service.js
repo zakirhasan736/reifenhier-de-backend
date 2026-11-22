@@ -1,4 +1,5 @@
 import Product from '../../models/product.js'
+import CarSizeCache from '../../models/carSizeCache.js'
 import { llmJson, llmAvailable } from './llm.js'
 import { SEASON_CATEGORY, pickThree, factsFor, grade, noiseDb, brandTier } from './scoring.js'
 
@@ -262,6 +263,11 @@ export async function carSizes({ make, model, year }) {
       console.error('[searchlight] wheel-size failed:', err?.message || err)
     }
   }
+  const cacheKey = `${make}|${model}|${year}`.toLowerCase()
+  const cached = await CarSizeCache.findOne({ key: cacheKey }).lean().catch(() => null)
+  if (cached?.sizes?.length) {
+    return { source: 'ai', generation: cached.generation || '', sizes: cached.sizes, cached: true, note: 'Typische Größen für dieses Modell – bitte vor dem Kauf auf deiner Reifenflanke oder im CoC-Papier prüfen.' }
+  }
   const out = await llmJson({
     system:
       'Du kennst die werksseitigen Reifengrößen von Autos auf dem deutschen Markt. Nenne nur Größen, die für dieses Modell üblich sind. Wenn du unsicher bist, gib weniger Größen an. Antworte nur mit JSON.',
@@ -270,6 +276,7 @@ export async function carSizes({ make, model, year }) {
   })
   const sizes = (out?.sizes || []).filter(s => /^\d{3}$/.test(s.width) && /^\d{2}$/.test(s.height) && /^\d{2}$/.test(s.diameter)).slice(0, 5)
   if (!sizes.length) return { error: llmAvailable() ? 'unknown_car' : 'ai_not_configured' }
+  CarSizeCache.updateOne({ key: cacheKey }, { $set: { generation: out.generation || '', sizes, source: 'ai', createdAt: new Date() } }, { upsert: true }).catch(() => {})
   return {
     source: 'ai',
     generation: out.generation || '',

@@ -7,6 +7,10 @@ const { pickThree, brandTier, grade, speedRank } = await import('../src/api/sear
 const { parseJson } = await import('../src/api/searchlight/llm.js')
 const svc = await import('../src/api/searchlight/searchlight.service.js')
 const { default: Product } = await import('../src/models/product.js')
+const { default: CarSizeCache } = await import('../src/models/carSizeCache.js')
+const cacheWrites = []
+CarSizeCache.findOne = () => ({ lean: async () => null })
+CarSizeCache.updateOne = async (...a) => { cacheWrites.push(a); return {} }
 
 const P = (id, brand, price, wet, fuel, db, li = '91', si = 'H', offers = 3) => ({
   _id: id, slug: id, brand_name: brand, product_name: `${brand} ${id}`, width: '205', height: '55', diameter: '16',
@@ -94,6 +98,8 @@ test('AI path (mocked Anthropic): car sizes are validated', async () => {
     assert.equal(r.source, 'ai')
     assert.equal(r.sizes.length, 1)
     assert.match(r.note, /prüfen/)
+    assert.equal(cacheWrites.length, 1)
+    assert.equal(cacheWrites[0][0].key, 'vw|golf|2016')
   } finally {
     globalThis.fetch = realFetch
     delete process.env.ANTHROPIC_API_KEY
