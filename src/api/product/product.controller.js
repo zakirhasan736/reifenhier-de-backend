@@ -1,5 +1,7 @@
 import FeaturedSettings from '../../models/FeaturedSettings.js';
 import Product from '../../models/product.js';
+import Click from '../../models/click.js';
+import AwinTransaction from '../../models/awinTransaction.js';
 import { startCsvImportAsync } from "./importAWINCsv.js";
 
 
@@ -1474,6 +1476,266 @@ export const getSeoLandings = async (req, res) => {
     } catch (err) {
         console.error("getSeoLandings failed:", err);
         return res.status(500).json({ message: "Failed to build SEO landings" });
+    }
+};
+
+const showcaseCache = new Map();
+
+function topVendor(map) {
+    if (!map || map.size === 0) return { name: '', count: 0 };
+    let name = '';
+    let count = 0;
+    for (const [vendor, n] of map) {
+        if (n > count) {
+            name = vendor;
+            count = n;
+        }
+    }
+    return { name, count };
+}
+
+function trendPoints(trend) {
+    const points = Array.isArray(trend?.points) ? trend.points : [];
+    return points
+        .filter((p) => Array.isArray(p) && Number(p[1]) > 0)
+        .slice(-30);
+}
+
+/**
+ * Highlight rail for the product listing page.
+ * Bestsellers come from recorded AWIN sales. Popular products come from shop clicks.
+ * GET /api/products/listing-showcase?kategorie=Winterreifen&limit=12
+ */
+export const listingShowcase = async (req, res) => {
+    try {
+        const category = String(req.query.kategorie || req.query.category || '').trim();
+        const limit = Math.min(12, Math.max(4, parseInt(req.query.limit, 10) || 12));
+        const cacheKey = `${category}|${limit}`;
+        const cached = showcaseCache.get(cacheKey);
+        if (cached && Date.now() - cached.at < 3 * 60 * 1000) {
+            res.set('Cache-Control', 'public, max-age=180');
+            return res.json(cached.data);
+        }
+
+        const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const [saleRows, clickRows] = await Promise.all([
+            AwinTransaction.aggregate([
+                {
+                    $match: {
+                        productId: { $type: 'string', $ne: '' },
+                        status: { $nin: ['declined', 'deleted'] },
+                    },
+                },
+                {
+                    $group: {
+                        _id: { hint: '$productId', vendor: { $ifNull: ['$merchantName', ''] } },
+                        sales: { $sum: 1 },
+                    },
+                },
+            ]),
+            Click.aggregate([
+                { $match: { product_id: { $exists: true, $ne: null }, clicked_at: { $gte: since } } },
+                {
+                    $group: {
+                        _id: { product: '$product_id', vendor: { $ifNull: ['$vendor', ''] } },
+                        clicks: { $sum: 1 },
+                    },
+                },
+                {
+                    $group: {
+                        _id: '$_id.product',
+                        clicks: { $sum: '$clicks' },
+                        vendors: { $push: { name: '$_id.vendor', clicks: '$clicks' } },
+                    },
+                },
+                { $sort: { clicks: -1 } },
+                { $limit: 80 },
+            ]),
+        ]);
+
+        const salesByHint = new Map();
+        for (const row of saleRows) {
+            const hint = String(row._id?.hint || '');
+            if (!hint) continue;
+            const entry = salesByHint.get(hint) || { sales: 0, vendors: new Map() };
+            const n = Number(row.sales) || 0;
+            entry.sales += n;
+            const vendor = String(row._id?.vendor || '').trim();
+            if (vendor) entry.vendors.set(vendor, (entry.vendors.get(vendor) || 0) + n);
+            salesByHint.set(hint, entry);
+        }
+
+        const clicksById = new Map();
+        for (const row of clickRows) {
+            const id = String(row._id || '');
+            if (!id) continue;
+            const vendors = new Map();
+            for (const v of row.vendors || []) {
+                const name = String(v?.name || '').trim();
+                if (name) vendors.set(name, (vendors.get(name) || 0) + (Number(v.clicks) || 0));
+            }
+            clicksById.set(id, { clicks: Number(row.clicks) || 0, vendors });
+        }
+
+        const hints = [...salesByHint.keys()];
+        const categoryMatch = category ? { merchant_product_third_category: category } : null;
+        let soldIds = [];
+        if (hints.length && categoryMatch) {
+            const sold = await Product.aggregate([
+                { $match: { ...categoryMatch, slug: { $exists: true, $nin: [null, ''] } } },
+                { $project: { hint: { $substrCP: [{ $toString: '$_id' }, 12, 12] } } },
+                { $match: { hint: { $in: hints } } },
+                { $limit: 40 },
+            ]);
+            soldIds = sold.map((row) => row._id);
+        }
+
+        const clickIds = [...clicksById.keys()];
+        const wanted = [];
+        const seen = new Set();
+        for (const id of [...soldIds, ...clickIds]) {
+            const key = String(id);
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            wanted.push(id);
+        }
+
+        const select = {
+            slug: 1,
+            brand_name: 1,
+            product_name: 1,
+            dimensions: 1,
+            product_image: 1,
+            awin_image_url: 1,
+            merchant_thumb_url: 1,
+            merchant_image_url: 1,
+            fuel_class: 1,
+            wet_grip: 1,
+            noise_class: 1,
+            tyre_label_info: 1,
+            ean: 1,
+            width: 1,
+            height: 1,
+            diameter: 1,
+            lastIndex: 1,
+            speedIndex: 1,
+            merchant_product_third_category: 1,
+            cheapest_offer: 1,
+            expensive_offer: 1,
+            search_price: 1,
+            total_offers: 1,
+            cheapest_vendor: 1,
+            offers: 1,
+            price_trend: 1,
+        };
+
+        let picked = wanted.length
+            ? await Product.find({
+                _id: { $in: wanted },
+                ...(categoryMatch || {}),
+                slug: { $exists: true, $nin: [null, ''] },
+            }).select(select).lean()
+            : [];
+
+        if (picked.length < limit) {
+            const filler = await Product.find({
+                ...(categoryMatch || {}),
+                slug: { $exists: true, $nin: [null, ''] },
+                cheapest_offer: { $gt: 0 },
+                _id: { $nin: picked.map((p) => p._id) },
+            }).sort({ createdAt: -1 }).limit(limit - picked.length).select(select).lean();
+            picked = picked.concat(filler);
+        }
+
+        const decorated = picked.map((product) => {
+            const id = String(product._id);
+            const sales = salesByHint.get(id.slice(12));
+            const clicks = clicksById.get(id);
+            const stats = liveOfferStats(product.offers);
+            const saleVendor = topVendor(sales?.vendors);
+            const clickVendor = topVendor(clicks?.vendors);
+            const cheapestName = stats.cheapestOffer?.vendor || product.cheapest_vendor?.vendor || '';
+            return {
+                _id: id,
+                slug: product.slug,
+                brand_name: product.brand_name || '',
+                product_name: product.product_name || '',
+                dimensions: product.dimensions || '',
+                product_image: product.product_image,
+                awin_image_url: product.awin_image_url,
+                merchant_thumb_url: product.merchant_thumb_url,
+                merchant_image_url: product.merchant_image_url,
+                fuel_class: product.fuel_class || '',
+                wet_grip: product.wet_grip || '',
+                noise_class: product.noise_class || '',
+                tyre_label_info: product.tyre_label_info || null,
+                ean: product.ean || '',
+                width: product.width,
+                height: product.height,
+                diameter: product.diameter,
+                lastIndex: product.lastIndex,
+                speedIndex: product.speedIndex,
+                merchant_product_third_category: product.merchant_product_third_category || '',
+                cheapest_offer: stats.cheapest || toNumericPrice(product.cheapest_offer) || toNumericPrice(product.search_price),
+                expensive_offer: stats.expensive || toNumericPrice(product.expensive_offer),
+                total_offers: Number(product.total_offers) || stats.sorted.length || 0,
+                price_trend: { points: trendPoints(product.price_trend) },
+                highlight: {
+                    sales: sales?.sales || 0,
+                    clicks: clicks?.clicks || 0,
+                    best_vendor: saleVendor.name || clickVendor.name || cheapestName,
+                    best_vendor_sales: saleVendor.count,
+                    best_vendor_clicks: clickVendor.count,
+                },
+            };
+        });
+
+        decorated.sort((a, b) =>
+            b.highlight.sales - a.highlight.sales
+            || b.highlight.clicks - a.highlight.clicks
+            || (a.cheapest_offer || 0) - (b.cheapest_offer || 0)
+        );
+
+        const list = decorated.slice(0, limit);
+        const topClicks = list.reduce((max, p) => Math.max(max, p.highlight.clicks), 0);
+        const brandScore = new Map();
+        for (const product of list) {
+            const brand = product.brand_name;
+            if (!brand) continue;
+            const prev = brandScore.get(brand) || { sales: 0, clicks: 0 };
+            prev.sales += product.highlight.sales;
+            prev.clicks += product.highlight.clicks;
+            brandScore.set(brand, prev);
+        }
+        let topBrand = '';
+        let bestRank = 0;
+        for (const [brand, score] of brandScore) {
+            const rank = score.sales * 100000 + score.clicks;
+            if (rank > bestRank) {
+                bestRank = rank;
+                topBrand = brand;
+            }
+        }
+
+        const rankedBySales = list.filter((p) => p.highlight.sales > 0);
+        const bestseller = rankedBySales[0] || null;
+        const popular = topClicks > 0
+            ? list.find((p) => p.highlight.clicks === topClicks && p._id !== bestseller?._id)
+            : rankedBySales[1] || null;
+        for (const product of list) {
+            product.highlight.is_bestseller = product._id === bestseller?._id;
+            product.highlight.has_sales = product.highlight.sales > 0 && product._id !== bestseller?._id && product._id !== popular?._id;
+            product.highlight.is_popular = product._id === popular?._id;
+            product.highlight.is_top_brand = Boolean(topBrand) && product.brand_name === topBrand;
+        }
+
+        const payload = { products: list };
+        showcaseCache.set(cacheKey, { at: Date.now(), data: payload });
+        res.set('Cache-Control', 'public, max-age=180');
+        return res.json(payload);
+    } catch (err) {
+        console.error('listingShowcase', err);
+        return res.status(500).json({ products: [] });
     }
 };
 

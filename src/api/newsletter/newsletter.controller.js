@@ -3,6 +3,7 @@ import sgMail from "@sendgrid/mail";
 import ExcelJS from "exceljs";
 
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../utils/newsletterToken.js";
+import { sendNewsletterLead } from "../utils/gmailMailer.js";
 
 if (process.env.SENDGRID_API_KEY) {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -37,45 +38,62 @@ export const subscribeNewsletter = async (req, res) => {
             });
         }
 
+        const normalizedEmail = String(email).trim().toLowerCase();
         const frontendUrl = process.env.FRONTEND_URL || "https://www.reifexa.de";
-        const token = generateUnsubscribeToken(email);
+        const token = generateUnsubscribeToken(normalizedEmail);
 
-        const existing = await NewsletterSubscriber.findOne({ email });
+        const existing = await NewsletterSubscriber.findOne({ email: normalizedEmail });
+        let leadStatus = "new";
 
-        // CASE 1️⃣: Already subscribed
+        // CASE 1: Already subscribed
         if (existing && existing.status === "subscribed") {
-            return res.status(200).json({
-                success: true,
-                message: "Sie sind bereits für den Newsletter angemeldet!",
-            });
+            leadStatus = "already_subscribed";
         }
 
-        // CASE 2️⃣: Previously unsubscribed
+        // CASE 2: Previously unsubscribed
         if (existing && existing.status === "unsubscribed") {
             existing.status = "subscribed";
             existing.reSubscribedAt = new Date();
             existing.source = source || existing.source;
             existing.ip = req.ip;
             await existing.save();
+            leadStatus = "resubscribed";
         }
 
-        // CASE 3️⃣: New user
+        // CASE 3: New user
         if (!existing) {
             await NewsletterSubscriber.create({
-                email,
+                email: normalizedEmail,
                 status: "subscribed",
                 source: source || "footer_form",
                 ip: req.ip,
                 subscribedAt: new Date(),
             });
+            leadStatus = "new";
         }
 
-        // Send confirmation email
-        const msg = {
-            to: email,
-            from: process.env.SENDGRID_FROM,
-            subject: "Newsletter Anmeldung bestätigt!",
-            html: `
+        let notified = false;
+        try {
+            const lead = await sendNewsletterLead({
+                email: normalizedEmail,
+                source: source || "footer_form",
+                ip: req.ip,
+                status: leadStatus,
+            });
+            notified = Boolean(lead.sent);
+        } catch (mailErr) {
+            console.error("[Newsletter LEAD MAIL]", mailErr.message);
+        }
+
+        // Confirmation to the subscriber stays on SendGrid when it is configured.
+        // A SendGrid failure must not hide a lead that was already saved.
+        if (leadStatus !== "already_subscribed" && process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM) {
+            try {
+                await sgMail.send({
+                    to: normalizedEmail,
+                    from: process.env.SENDGRID_FROM,
+                    subject: "Newsletter Anmeldung bestätigt!",
+                    html: `
         <div style="font-family: Arial, sans-serif; color: #222;">
           <h2>Vielen Dank für Ihre Anmeldung!</h2>
           <p>Sie haben sich erfolgreich für unseren Newsletter angemeldet.</p>
@@ -90,13 +108,19 @@ export const subscribeNewsletter = async (req, res) => {
           <p style="font-size:13px;color:#777;">Ihr Team von Reifencheck.de</p>
         </div>
       `,
-        };
+                });
+            } catch (confirmErr) {
+                console.error("[Newsletter CONFIRM]", confirmErr.response?.body || confirmErr.message);
+            }
+        }
 
-        await sgMail.send(msg);
-
-        res.status(201).json({
+        const already = leadStatus === "already_subscribed";
+        res.status(already ? 200 : 201).json({
             success: true,
-            message: "Danke! Sie wurden erfolgreich zum Newsletter hinzugefügt.",
+            notified,
+            message: already
+                ? "Sie sind bereits für den Newsletter angemeldet!"
+                : "Danke! Sie wurden erfolgreich zum Newsletter hinzugefügt.",
         });
     } catch (err) {
         console.error("[Newsletter ERROR]", err.response?.body || err.message);

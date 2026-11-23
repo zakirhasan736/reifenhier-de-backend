@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { getSeoLandings, getPriceHistory,
      productLists,
+     listingShowcase,
      productSitemapSlugs,
       // getProductsBySession,
       uploadCsv, getProductDetails, getBrandSummary, updateFeaturedSettings, getLatestProducts, getFeaturedProducts, GetFilterTyres, getSearchSuggestions } from "./product.controller.js";
@@ -15,6 +16,7 @@ const router = express.Router();
 // Legacy/compatibility routes used by the frontend and older callers.
 router.get("/", productLists);
 router.get("/product-lists", productLists);
+router.get("/listing-showcase", listingShowcase);
 router.get("/sitemap-slugs", productSitemapSlugs);
 router.get("/go-lookup/:awProductId", goLookup);
 router.get("/product-details/:slug", getProductDetails);
