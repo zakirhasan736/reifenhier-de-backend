@@ -7,7 +7,7 @@ import Product from "../../models/product.js";
 import { computeOfferStats } from "./offerPricing.js";
 import { isReifenComOffer } from "./reifenCom.js";
 import { applyShopPrice } from "./merchantLivePrice.js";
-import { germanGigaUrl, isGigaVendor } from "./gigaShop.js";
+import { isGigaVendor } from "./gigaShop.js";
 
 dotenv.config();
 
@@ -210,32 +210,15 @@ async function processProduct(prod) {
             limitOffer(async () => {
                 // reifen.com has its own live sync (syncReifenComPrices.js).
                 if (isReifenComOffer(offer)) return;
-                let url = String(offer.merchant_deep_link || "").trim();
-                const gigaDe = isGigaVendor(offer) ? germanGigaUrl(url) : "";
-                if (gigaDe) {
-                    offer.merchant_deep_link = gigaDe;
-                    url = gigaDe;
-                }
+                // giga-reifen.de answers 403. Prices for that shop come from
+                // the German AWIN feed: npm run giga:sync
+                if (isGigaVendor(offer)) return;
+                const url = String(offer.merchant_deep_link || "").trim();
                 if (!/^https?:\/\//i.test(url)) return;
 
                 const livePrice = await fetchLivePrice(url);
                 if (!(livePrice > 0)) return;
                 checked++;
-
-                // The stored Giga price is Swiss francs. A euro price from
-                // giga-reifen.de replaces it even when the two numbers differ a lot.
-                if (gigaDe) {
-                    const before = Number(offer.price) || 0;
-                    if (!(Number(offer.awin_price) > 0)) offer.awin_price = before;
-                    offer.price = livePrice;
-                    offer.currency = "EUR";
-                    offer.price_source = "merchant-live";
-                    offer.merchant_price = livePrice;
-                    offer.merchant_price_checked_at = new Date();
-                    offer.price_mismatch = false;
-                    if (Math.abs(livePrice - before) >= 0.01) priceChanges++;
-                    return;
-                }
 
                 if (applyShopPrice(offer, livePrice, { apply: APPLY, mismatchRatio: MISMATCH_RATIO, maxApplyRatio: MAX_APPLY_RATIO })) priceChanges++;
             })
