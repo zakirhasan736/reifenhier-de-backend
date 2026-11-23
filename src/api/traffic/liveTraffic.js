@@ -1,5 +1,6 @@
 import { GoogleAuth } from 'google-auth-library';
 import { propertyId, serviceAccountFile } from './ga4Config.js';
+import { countryCenter } from './countryCenters.js';
 
 const key = serviceAccountFile() || undefined;
 const auth = new GoogleAuth({
@@ -11,9 +12,11 @@ const label = (row, index = 0) => row.dimensionValues?.[index]?.value ?? '';
 const activities = (report) => (report.rows ?? []).map(row => ({ label: label(row), count: count(row) }));
 const normalize = (name) => name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 let locations;
+let byWord;
 function cityPoint(cities, country, name) {
     if (!locations) {
         locations = new Map();
+        byWord = new Map();
         for (const city of cities) {
             const key = countryKey(city.country, city.name);
             const [lng, lat] = city.loc.coordinates;
@@ -22,9 +25,16 @@ function cityPoint(cities, country, name) {
                 locations.set(key, [lat, lng]);
             else if (previous && (Math.abs(previous[0] - lat) > 0.2 || Math.abs(previous[1] - lng) > 0.2))
                 locations.set(key, null);
+            const word = normalize(city.name).split(/[\s,/-]+/)[0];
+            const wordKey = city.country + '/' + word;
+            if (word && !byWord.has(wordKey))
+                byWord.set(wordKey, [lat, lng]);
         }
     }
-    return locations.get(countryKey(country, name)) ?? null;
+    const exact = name ? locations.get(countryKey(country, name)) : null;
+    if (exact) return exact;
+    const word = name ? normalize(name).split(/[\s,/-]+/)[0] : '';
+    return (word && byWord.get(country + '/' + word)) || null;
 }
 function countryKey(country, name) {
     return country + '/' + normalize(name);
@@ -73,9 +83,13 @@ async function load(property) {
     }
     return { updatedAt: new Date().toISOString(), last30: count(total.rows?.[0]), last5: count(five.rows?.[0]), minutes,
         cities: (geography.rows ?? []).map(row => {
-            const country = label(row), name = label(row, 1);
-            return { country, label: name, count: count(row), point: cityPoint(cities, country, name) };
-        }), pages: activities(pages), acquisition: sources };
+            const country = label(row);
+            const rawName = label(row, 1);
+            const name = !rawName || /^\(not set\)$/i.test(rawName) ? '' : rawName;
+            const center = countryCenter(country);
+            const point = (name && cityPoint(cities, country, name)) || center?.point || null;
+            return { country, label: name || center?.name || country, count: count(row), point };
+        }).filter(row => row.count > 0), pages: activities(pages), acquisition: sources };
 }
 export async function liveTraffic(_req, res) {
     const property = propertyId();
