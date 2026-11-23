@@ -1,5 +1,11 @@
 import { GoogleAuth } from 'google-auth-library';
-const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/analytics.readonly'] });
+import { propertyId, serviceAccountFile } from './ga4Config.js';
+
+const key = serviceAccountFile() || undefined;
+const auth = new GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+    ...(key ? { keyFile: key } : {}),
+});
 const count = (row) => Number(row?.metricValues[0]?.value ?? 0);
 const label = (row, index = 0) => row.dimensionValues?.[index]?.value ?? '';
 const activities = (report) => (report.rows ?? []).map(row => ({ label: label(row), count: count(row) }));
@@ -72,8 +78,11 @@ async function load(property) {
         }), pages: activities(pages), acquisition: sources };
 }
 export async function liveTraffic(_req, res) {
-    const property = process.env.GA4_PROPERTY_ID ?? '';
-    if (/^\d+$/.test(property) && Date.now() >= retryAfter && (!snapshot || Date.now() - Date.parse(snapshot.updatedAt) >= 30000)) {
+    const property = propertyId();
+    if (!/^\d+$/.test(property)) {
+        return res.set('Cache-Control', 'public, max-age=60').status(503).json({ error: 'traffic_unavailable' });
+    }
+    if (Date.now() >= retryAfter && (!snapshot || Date.now() - Date.parse(snapshot.updatedAt) >= 30000)) {
         pending ??= load(property).then(data => (snapshot = data)).catch(error => {
             retryAfter = Date.now() + 30000;
             console.error('[live-traffic] GA4 request failed', error?.response?.status || 'authentication or network');

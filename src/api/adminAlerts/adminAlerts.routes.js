@@ -9,6 +9,7 @@ import {
 } from './adminAlerts.service.js'
 import { getVapidPublicKey } from '../push/push.service.js'
 import { getTrackingCheck } from './trackingCheck.js'
+import { analyticsStatus, savePropertyId } from '../traffic/ga4Config.js'
 
 const router = express.Router()
 
@@ -84,6 +85,18 @@ router.post('/test', requireOwner, async (_req, res) => {
 router.get('/summary', requireOwner, async (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90)
   res.json(await getAlertsSummary(days))
+})
+
+/** GET /api/admin-alerts/analytics — GA4 connection status for the owner page. */
+router.get('/analytics', requireOwner, (_req, res) => {
+  res.json(analyticsStatus())
+})
+
+/** POST /api/admin-alerts/analytics { propertyId } — numeric GA4 property id, not the G- measurement id. */
+router.post('/analytics', requireOwner, (req, res) => {
+  const id = savePropertyId(req.body?.propertyId)
+  if (!id) return res.status(400).json({ error: 'property_id_must_be_numeric' })
+  res.json(analyticsStatus())
 })
 
 /** GET /api/admin-alerts/tracking-check?days=30 — per-vendor link + sale tracking check */
