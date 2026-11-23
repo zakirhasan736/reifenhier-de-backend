@@ -30,6 +30,7 @@
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
     "adm-zip": "^0.5.16",
+    "all-the-cities": "^3.1.0",
     "axios": "^1.10.0",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.2",
@@ -49,6 +50,7 @@
     "fs": "^0.0.1-security",
     "fs-extra": "^11.3.0",
     "geoip-lite": "^1.4.10",
+    "google-auth-library": "^11.3.4",
     "import": "^0.0.6",
     "ioredis": "^5.6.1",
     "ipaddr.js": "^2.5.0",

@@ -24,6 +24,7 @@ import newsletterRoutes from './api/newsletter/newsletter.route.js';
 import analyticsRoutes from './api/analytics/analytics.routes.js';
 import pushRoutes from './api/push/push.routes.js';
 import searchlightRoutes from './api/searchlight/searchlight.routes.js';
+import { liveTraffic } from './api/traffic/liveTraffic.js';
 import trafficRoutes from './api/traffic/traffic.routes.js';
 import adminAlertsRoutes from './api/adminAlerts/adminAlerts.routes.js';
 
@@ -108,6 +109,7 @@ app.use('/', affiliateRouter);
 app.use('/api/v1', analyticsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/admin-alerts', adminAlertsRoutes);
+app.get('/api/live-traffic', liveTraffic);
 app.use('/api/traffic', trafficRoutes);
 app.use('/api/fitment', fitmentRoutes);
 app.use('/api/admin/fitment', fitmentAdminRoutes);

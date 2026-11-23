@@ -42,3 +42,14 @@ The ingress must overwrite `X-Fitment-Client-IP` using the verified client
 address and block direct access to the origin. Configure and test from both an
 approved and a different IP before issuing production keys. The API checks the
 allowlisted IP and bearer key, and counts requests per key/day in MongoDB.
+
+### Homepage visitor map
+
+The Express server serves public aggregate GA4 data at GET /api/live-traffic.
+Enable the Analytics Data API and grant the service account Viewer access to
+the Reifexa property. Configure GA4_PROPERTY_ID and GOOGLE_APPLICATION_CREDENTIALS
+(the absolute path of the private service-account file on the backend). Set
+GA4_STREAM_ID to restrict reports to the Reifexa stream for a shared property.
+Restart the API after changing its environment. A successful response has
+updatedAt, last30, last5, minutes, cities, pages and acquisition. When recent
+data is unavailable the API returns 503. No MongoDB migration is required.
