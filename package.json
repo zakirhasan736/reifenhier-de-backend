@@ -24,7 +24,8 @@
     "reifen:check": "node scripts/check-reifen-com-prices.mjs",
     "prices:sync": "node scripts/price-sync-now.mjs",
     "prices:status": "node scripts/price-sync-now.mjs --status",
-    "newsletter:sheet": "node scripts/sync-newsletter-sheet.mjs"
+    "newsletter:sheet": "node scripts/sync-newsletter-sheet.mjs",
+    "vendors:report": "node scripts/vendor-activity-report.mjs"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
