@@ -6,6 +6,7 @@ import {
   extractAwinMerchantId,
   isNonHumanExitRequest,
 } from './awinTracking.js'
+import { GIGA_MERCHANT_ID, germanGigaUrl, gigaGermanClickUrl } from './gigaShop.js'
 import Product from '../../models/product.js'
 import Click from '../../models/click.js'
 import ProductInterest from '../../models/productInterest.js'
@@ -13,6 +14,31 @@ import geoip from 'geoip-lite'
 import { notifyVendorClick } from '../adminAlerts/adminAlerts.service.js'
 
 const router = express.Router()
+
+/** Point a Giga click at giga-reifen.de. Falls back to the original link. */
+async function germanGigaExitUrl(awinUrl) {
+  let productId = ''
+  try {
+    productId = new URL(awinUrl).searchParams.get('p') || ''
+  } catch {
+    return awinUrl
+  }
+  if (!productId) return awinUrl
+  const ids = [productId]
+  const numeric = Number(productId)
+  if (Number.isFinite(numeric)) ids.push(numeric)
+  const lookup = Product.findOne(
+    { offers: { $elemMatch: { aw_product_id: { $in: ids } } } },
+    { 'offers.$': 1 }
+  ).lean()
+  const doc = await Promise.race([
+    lookup,
+    new Promise((resolve) => setTimeout(() => resolve(null), 500)),
+  ])
+  const destination = germanGigaUrl(doc?.offers?.[0]?.merchant_deep_link)
+  if (!destination) return awinUrl
+  return gigaGermanClickUrl(process.env.AWIN_AFFILIATE_ID, destination)
+}
 
 function anonymizeIp(ip) {
   if (!ip || ip === 'unknown') return 'unknown'
@@ -267,7 +293,11 @@ async function handleVendorExit(req, res, token) {
   }
 
   const campaignId = process.env.AWIN_CAMPAIGN_ID || '566'
-  const exitUrl = prepareAwinExitUrl(decodedUrl, {
+  let trackedUrl = decodedUrl
+  if (extractAwinMerchantId(decodedUrl) === GIGA_MERCHANT_ID) {
+    trackedUrl = await germanGigaExitUrl(decodedUrl)
+  }
+  const exitUrl = prepareAwinExitUrl(trackedUrl, {
     productId,
     uuid,
     from,

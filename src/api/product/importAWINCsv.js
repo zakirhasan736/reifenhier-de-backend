@@ -17,6 +17,7 @@ import { heartbeat } from "../utils/importLock.js";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor, isValidSecondCategory, isValidThirdCategory } from "../utils/validators.js";
 import { isReifenComRow, isReifenComOffer } from "../utils/reifenCom.js";
+import { isSwissGigaOffer } from "../utils/gigaShop.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
 import { extractAwinAffiliateId, logAwinTrackingMismatch } from "../utils/awinTracking.js";
 import {
@@ -456,7 +457,9 @@ export async function importAWINCsv(filePath) {
                             continue;
                         }
 
-                        const vendorRowsFiltered = vendorRows.filter(hasAwinAffiliateLink);
+                        const vendorRowsFiltered = vendorRows.filter(
+                            (row) => hasAwinAffiliateLink(row) && !isSwissGigaOffer(row)
+                        );
                         if (!vendorRowsFiltered.length) {
                             importStatus.skipped++;
                             continue;
