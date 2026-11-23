@@ -30,9 +30,13 @@ function tabName() {
     return String(process.env.GOOGLE_SHEET_TAB || "Newsletter").trim() || "Newsletter";
 }
 
-function a1(range) {
-    const safe = tabName().replace(/'/g, "''");
+function a1(range, tab = tabName()) {
+    const safe = String(tab).replace(/'/g, "''");
     return `'${safe}'!${range}`;
+}
+
+function autoApiTab() {
+    return String(process.env.GOOGLE_SHEET_AUTO_API_TAB || "Auto-API").trim() || "Auto-API";
 }
 
 function formatDate(value) {
@@ -128,13 +132,13 @@ async function sheetsFetch(creds, urlPath, { method = "GET", body } = {}) {
     return payload;
 }
 
-async function ensureTab(creds) {
+async function ensureTab(creds, tab = tabName()) {
     const meta = await sheetsFetch(creds, "?fields=sheets.properties.title");
     const titles = (meta.sheets || []).map((sheet) => sheet.properties?.title);
-    if (titles.includes(tabName())) return;
+    if (titles.includes(tab)) return;
     await sheetsFetch(creds, ":batchUpdate", {
         method: "POST",
-        body: { requests: [{ addSheet: { properties: { title: tabName() } } }] },
+        body: { requests: [{ addSheet: { properties: { title: tab } } }] },
     });
 }
 
@@ -203,6 +207,59 @@ async function upsertRows(leads) {
 
     await writeTable(creds, data);
     return { saved: true, count: data.length };
+}
+
+const AUTO_API_HEADERS = ["Email", "Tarif", "Server-IPs", "Anfrage-IP", "Status", "Zeit"];
+
+async function appendAutoApiRow(lead) {
+    const id = sheetId();
+    const creds = loadCredentials();
+    if (!id || !creds) {
+        console.warn("[SHEET] GOOGLE_SHEET_ID or GOOGLE_SERVICE_ACCOUNT_FILE missing — Auto-API sheet skipped");
+        return { saved: false, reason: "not_configured" };
+    }
+
+    const tab = autoApiTab();
+    await ensureTab(creds, tab);
+    const headerRange = encodeURIComponent(a1("A1:F1", tab));
+    let header = [];
+    try {
+        const payload = await sheetsFetch(creds, `/values/${headerRange}`);
+        header = payload.values?.[0] || [];
+    } catch (err) {
+        if (err.status !== 400) throw err;
+    }
+    if (header[0] !== AUTO_API_HEADERS[0]) {
+        await sheetsFetch(creds, `/values/${encodeURIComponent(a1("A1", tab))}?valueInputOption=RAW`, {
+            method: "PUT",
+            body: { values: [AUTO_API_HEADERS] },
+        });
+    }
+
+    const serverIps = Array.isArray(lead.serverIps) ? lead.serverIps.join(", ") : String(lead.serverIps || "");
+    await sheetsFetch(
+        creds,
+        `/values/${encodeURIComponent(a1("A:F", tab))}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        {
+            method: "POST",
+            body: {
+                values: [[
+                    String(lead.email || "").trim().toLowerCase(),
+                    lead.plan || "",
+                    serverIps,
+                    lead.ip || "",
+                    lead.status || "pending",
+                    formatDate(new Date()),
+                ]],
+            },
+        }
+    );
+    return { saved: true };
+}
+
+/** Auto-API checkout rows go to their own tab, not the newsletter tab. */
+export function appendAutoApiRequest(lead) {
+    return enqueue(() => appendAutoApiRow(lead));
 }
 
 export function upsertNewsletterLead(lead) {

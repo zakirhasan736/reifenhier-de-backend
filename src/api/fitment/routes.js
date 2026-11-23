@@ -5,6 +5,8 @@ import ipaddr from 'ipaddr.js'
 import { rateLimit } from 'express-rate-limit'
 import { adminAuth } from '../../middleware/auth.js'
 import { Access, Vehicle, normalizeSize, normalizeFitment, validFitment, plans, termsVersion, vehicleKey } from './data.js'
+import { sendAutoApiRequest } from '../utils/gmailMailer.js'
+import { appendAutoApiRequest } from '../utils/googleSheetLeads.js'
 
 export const router = Router()
 export const adminRouter = Router()
@@ -30,6 +32,16 @@ function sourceIp(req) {
   return ip(peer, true)
 }
 
+function requestIp(req) {
+  const forwarded = req.headers['x-forwarded-for']
+  const raw = req.headers['cf-connecting-ip']
+    || req.headers['x-real-ip']
+    || (typeof forwarded === 'string' ? forwarded.split(',')[0] : '')
+    || req.socket?.remoteAddress
+    || ''
+  return ip(String(raw).trim()) || String(raw).trim().slice(0, 64)
+}
+
 router.get('/plans', (_req, res) => res.json({ plans, termsVersion }))
 router.post('/access', rateLimit({ limit: 20, windowMs: 3600000 }), handle(async (req, res) => {
   const { plan, email, ips, acceptedTerms } = req.body || {}
@@ -39,7 +51,40 @@ router.post('/access', rateLimit({ limit: 20, windowMs: 3600000 }), handle(async
       ips.some(value => !ip(value, true))) {
     return res.status(400).json({ error: 'invalid_application' })
   }
-  await Access.create({ plan, email: email.toLowerCase(), requestedIps: [...new Set(ips.map(value => ip(value, true)))], termsVersion })
+  const requestedIps = [...new Set(ips.map(value => ip(value, true)))]
+  const requesterIp = requestIp(req)
+  const normalizedEmail = email.toLowerCase()
+  await Access.create({
+    plan,
+    email: normalizedEmail,
+    requestedIps,
+    requestIp: requesterIp,
+    termsVersion,
+  })
+
+  try {
+    await sendAutoApiRequest({
+      email: normalizedEmail,
+      plan,
+      serverIps: requestedIps,
+      ip: requesterIp,
+    })
+  } catch (err) {
+    console.error('[AUTO-API MAIL]', err.message)
+  }
+
+  try {
+    await appendAutoApiRequest({
+      email: normalizedEmail,
+      plan,
+      serverIps: requestedIps,
+      ip: requesterIp,
+      status: 'pending',
+    })
+  } catch (err) {
+    console.error('[AUTO-API SHEET]', err.message)
+  }
+
   res.status(202).json({ status: 'pending' })
 }))
 

@@ -73,3 +73,47 @@ export async function sendNewsletterLead({ email, source, ip, status }) {
 
     return { sent: true };
 }
+
+/**
+ * Email an Auto-API checkout request to the same inbox as newsletter leads.
+ */
+export async function sendAutoApiRequest({ email, plan, serverIps, ip }) {
+    const transport = getTransporter();
+    const to = process.env.LEAD_NOTIFY_EMAIL || process.env.EMAIL_USER;
+    if (!transport || !to) {
+        console.warn("[MAIL] EMAIL_USER/EMAIL_PASS missing — Auto-API request email skipped");
+        return { sent: false, reason: "not_configured" };
+    }
+
+    const safeEmail = String(email).replace(/[\r\n]/g, "");
+    const ips = Array.isArray(serverIps) ? serverIps.join(", ") : String(serverIps || "");
+    const when = new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin" });
+
+    await transport.sendMail({
+        from: `"Reifexa Auto-API" <${process.env.EMAIL_USER}>`,
+        to,
+        replyTo: safeEmail,
+        subject: `Neue Auto-API-Anfrage: ${safeEmail}`,
+        text: [
+            "Neue Auto-API-Zugangsanfrage",
+            "",
+            `E-Mail: ${safeEmail}`,
+            `Tarif: ${plan || "-"}`,
+            `Server-IPs: ${ips || "-"}`,
+            `Anfrage-IP: ${ip || "-"}`,
+            `Zeit: ${when}`,
+        ].join("\n"),
+        html: `
+            <div style="font-family: Arial, sans-serif; color: #222;">
+              <h2>Neue Auto-API-Zugangsanfrage</h2>
+              <p><strong>E-Mail:</strong> ${escapeHtml(safeEmail)}</p>
+              <p><strong>Tarif:</strong> ${escapeHtml(plan || "-")}</p>
+              <p><strong>Server-IPs:</strong> ${escapeHtml(ips || "-")}</p>
+              <p><strong>Anfrage-IP:</strong> ${escapeHtml(ip || "-")}</p>
+              <p><strong>Zeit:</strong> ${escapeHtml(when)}</p>
+            </div>
+        `,
+    });
+
+    return { sent: true };
+}

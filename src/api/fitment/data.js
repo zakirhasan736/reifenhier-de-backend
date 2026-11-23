@@ -57,6 +57,7 @@ const accessSchema = new mongoose.Schema({
   email: { type: String, required: true },
   plan: { type: String, enum: Object.keys(plans), required: true },
   requestedIps: [String],
+  requestIp: String,
   termsVersion: String,
   status: { type: String, enum: ['pending', 'active', 'revoked'], default: 'pending' },
   keyHash: { type: String, unique: true, sparse: true, select: false },
