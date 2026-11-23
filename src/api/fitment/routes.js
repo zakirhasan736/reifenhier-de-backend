@@ -42,18 +42,42 @@ function requestIp(req) {
   return ip(String(raw).trim()) || String(raw).trim().slice(0, 64)
 }
 
+function applicationIp(value) {
+  let input = typeof value === 'string' ? value.trim() : ''
+  input = input.replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+  const withPort = input.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/)
+  if (withPort) input = withPort[1]
+  const bracketed = input.match(/^\[([^\]]+)\](?::\d{1,5})?$/)
+  if (bracketed) input = bracketed[1]
+  const publicAddress = ip(input, true)
+  if (publicAddress) return { address: publicAddress }
+  return { field: ip(input) ? 'private_ip' : 'ips' }
+}
+
+function rejectApplication(res, field) {
+  return res.status(400).json({ error: 'invalid_application', field })
+}
+
 router.get('/plans', (_req, res) => res.json({ plans, termsVersion }))
 router.post('/access', rateLimit({ limit: 20, windowMs: 3600000 }), handle(async (req, res) => {
   const { plan, email, ips, acceptedTerms } = req.body || {}
-  if (!isPlan(plan) || typeof email !== 'string' || email.length > 254 ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || acceptedTerms !== termsVersion ||
-      !Array.isArray(ips) || !ips.length || ips.length > plans[plan].ips ||
-      ips.some(value => !ip(value, true))) {
-    return res.status(400).json({ error: 'invalid_application' })
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  const tokens = (Array.isArray(ips) ? ips : [])
+    .flatMap(value => String(value).split(/[\s,;]+/))
+    .map(value => value.trim())
+    .filter(Boolean)
+  if (!isPlan(plan)) return rejectApplication(res, 'plan')
+  if (!normalizedEmail || normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return rejectApplication(res, 'email')
   }
-  const requestedIps = [...new Set(ips.map(value => ip(value, true)))]
+  if (acceptedTerms !== termsVersion) return rejectApplication(res, 'terms')
+  if (!tokens.length) return rejectApplication(res, 'ips')
+  if (tokens.length > plans[plan].ips) return rejectApplication(res, 'too_many_ips')
+  const parsed = tokens.map(applicationIp)
+  const invalid = parsed.find(item => item.field)
+  if (invalid) return rejectApplication(res, invalid.field)
+  const requestedIps = [...new Set(parsed.map(item => item.address))]
   const requesterIp = requestIp(req)
-  const normalizedEmail = email.toLowerCase()
   await Access.create({
     plan,
     email: normalizedEmail,

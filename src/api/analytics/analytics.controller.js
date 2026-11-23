@@ -1,7 +1,9 @@
 // controllers/analytics.controller.js
+import mongoose from "mongoose";
 import Click from "../../models/click.js";
 import PageView from "../../models/pageView.js";
 import Behavior from "../../models/behavior.js";
+import AwinTransaction from "../../models/awinTransaction.js";
 import geoip from "geoip-lite";
 
 /* 🔐 IP anonymizer (GDPR) */
@@ -506,5 +508,121 @@ export const getCountryAnalytics = async (req, res) => {
         res.json(data);
     } catch {
         res.status(500).json({ error: "Country analytics failed" });
+    }
+};
+
+function productPath(slug) {
+    const clean = String(slug || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!clean || clean.includes("/") || clean.includes("..") || clean.length > 180) return "";
+    return `/produkte/${clean}`;
+}
+
+function asObjectId(id) {
+    const value = String(id || "").trim();
+    return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : null;
+}
+
+function placeRows(rows) {
+    return rows.map((row) => ({
+        country: row._id?.country || "unknown",
+        city: row._id?.city || "",
+        count: row.count || 0,
+    }));
+}
+
+/**
+ * View and buyer counts for product cards. Views are product-page visits.
+ * Buyers are distinct visitors who opened a shop (Zum Angebot). AWIN sales
+ * are confirmed purchases and have no city, so they are returned separately.
+ */
+export const getProductProof = async (req, res) => {
+    try {
+        const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 48) : [];
+        const ids = [];
+        const paths = [];
+        const byId = new Map();
+        for (const item of items) {
+            const oid = asObjectId(item?.id);
+            const page = productPath(item?.slug);
+            if (!oid || !page) continue;
+            const id = String(oid);
+            ids.push(oid);
+            paths.push(page);
+            byId.set(id, { id, page, tail: id.slice(-12), views: 0, buyers: 0, sales: 0 });
+        }
+        if (!ids.length) return res.json({ items: [] });
+
+        const [viewRows, buyerRows, saleRows] = await Promise.all([
+            PageView.aggregate([
+                { $match: { page: { $in: paths } } },
+                { $group: { _id: "$page", views: { $sum: 1 } } },
+            ]),
+            Click.aggregate([
+                { $match: { product_id: { $in: ids }, behavior: "vendor_exit" } },
+                { $group: { _id: { product: "$product_id", uuid: "$uuid" } } },
+                { $group: { _id: "$_id.product", buyers: { $sum: 1 } } },
+            ]),
+            AwinTransaction.aggregate([
+                {
+                    $match: {
+                        productId: { $in: [...byId.values()].map((row) => row.tail) },
+                        status: { $nin: ["declined", "deleted"] },
+                    },
+                },
+                { $group: { _id: "$productId", sales: { $sum: 1 } } },
+            ]),
+        ]);
+
+        const viewsByPage = new Map(viewRows.map((row) => [row._id, row.views]));
+        const buyersById = new Map(buyerRows.map((row) => [String(row._id), row.buyers]));
+        const salesByTail = new Map(saleRows.map((row) => [row._id, row.sales]));
+        const result = [...byId.values()].map((row) => ({
+            id: row.id,
+            views: viewsByPage.get(row.page) || 0,
+            buyers: buyersById.get(row.id) || 0,
+            sales: salesByTail.get(row.tail) || 0,
+        }));
+        res.json({ items: result });
+    } catch (err) {
+        logAnalyticsWriteError("Product proof failed:", err);
+        res.status(500).json({ error: "product_proof_failed" });
+    }
+};
+
+/** Country and city breakdown for one product. */
+export const getProductProofDetail = async (req, res) => {
+    try {
+        const oid = asObjectId(req.params.id);
+        const page = productPath(req.query.slug);
+        if (!oid || !page) return res.status(400).json({ error: "invalid_product" });
+
+        const [viewPlaces, buyerPlaces, sales] = await Promise.all([
+            PageView.aggregate([
+                { $match: { page } },
+                { $group: { _id: { country: "$country", city: "$city" }, count: { $sum: 1 } } },
+                { $sort: { count: -1 } },
+                { $limit: 12 },
+            ]),
+            Click.aggregate([
+                { $match: { product_id: oid, behavior: "vendor_exit" } },
+                { $group: { _id: { country: "$country", city: "$city", uuid: "$uuid" } } },
+                { $group: { _id: { country: "$_id.country", city: "$_id.city" }, count: { $sum: 1 } } },
+                { $sort: { count: -1 } },
+                { $limit: 12 },
+            ]),
+            AwinTransaction.countDocuments({
+                productId: String(oid).slice(-12),
+                status: { $nin: ["declined", "deleted"] },
+            }),
+        ]);
+
+        res.json({
+            viewPlaces: placeRows(viewPlaces),
+            buyerPlaces: placeRows(buyerPlaces),
+            sales,
+        });
+    } catch (err) {
+        logAnalyticsWriteError("Product proof detail failed:", err);
+        res.status(500).json({ error: "product_proof_failed" });
     }
 };

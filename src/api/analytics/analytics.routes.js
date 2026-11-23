@@ -1,5 +1,6 @@
 // routes/analytics.routes.js
 import express from "express";
+import rateLimit from "express-rate-limit";
 import {
     getTopVendors,
     getTopProducts,
@@ -12,6 +13,8 @@ import {
     logPageView,
     logClick,
     logBehavior,
+    getProductProof,
+    getProductProofDetail,
 } from "./analytics.controller.js";
 
 const router = express.Router();
@@ -37,5 +40,14 @@ router.get("/monthly", getMonthlyClicks);
 // Device + GEO
 router.get("/devices", getDeviceAnalytics);
 router.get("/countries", getCountryAnalytics);
+
+const proofLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+router.post("/proof", proofLimiter, getProductProof);
+router.get("/proof/:id", proofLimiter, getProductProofDetail);
 
 export default router;

@@ -257,6 +257,38 @@ async function appendAutoApiRow(lead) {
     return { saved: true };
 }
 
+async function ensureHeader(creds, tab, headers) {
+    await ensureTab(creds, tab);
+    const last = String.fromCharCode(64 + headers.length);
+    let header = [];
+    try {
+        const payload = await sheetsFetch(creds, `/values/${encodeURIComponent(a1(`A1:${last}1`, tab))}`);
+        header = payload.values?.[0] || [];
+    } catch (err) {
+        if (err.status !== 400) throw err;
+    }
+    if (header[0] === headers[0]) return;
+    await sheetsFetch(creds, `/values/${encodeURIComponent(a1("A1", tab))}?valueInputOption=RAW`, {
+        method: "PUT",
+        body: { values: [headers] },
+    });
+}
+
+/** Creates the Newsletter and Auto-API tabs with their header row. */
+export function ensureLeadTabs() {
+    return enqueue(async () => {
+        const id = sheetId();
+        const creds = loadCredentials();
+        if (!id || !creds) {
+            console.warn("[SHEET] GOOGLE_SHEET_ID or GOOGLE_SERVICE_ACCOUNT_FILE missing — sheet tabs skipped");
+            return { saved: false, reason: "not_configured" };
+        }
+        await ensureHeader(creds, tabName(), HEADERS);
+        await ensureHeader(creds, autoApiTab(), AUTO_API_HEADERS);
+        return { saved: true };
+    });
+}
+
 /** Auto-API checkout rows go to their own tab, not the newsletter tab. */
 export function appendAutoApiRequest(lead) {
     return enqueue(() => appendAutoApiRow(lead));
