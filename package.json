@@ -23,7 +23,8 @@
     "reifen:prices": "node src/api/utils/syncReifenComPrices.js",
     "reifen:check": "node scripts/check-reifen-com-prices.mjs",
     "prices:sync": "node scripts/price-sync-now.mjs",
-    "prices:status": "node scripts/price-sync-now.mjs --status"
+    "prices:status": "node scripts/price-sync-now.mjs --status",
+    "newsletter:sheet": "node scripts/sync-newsletter-sheet.mjs"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",

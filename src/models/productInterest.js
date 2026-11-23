@@ -43,7 +43,7 @@ const productInterestSchema = new mongoose.Schema(
       default: [],
     },
 
-    notifyEnabled: { type: Boolean, default: true, index: true },
+    notifyEnabled: { type: Boolean, default: false, index: true },
     lastNotifiedAt: Date,
     lastNotifiedKind: String,
 

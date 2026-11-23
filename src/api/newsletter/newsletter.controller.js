@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from "../utils/newsletterToken.js";
 import { sendNewsletterLead } from "../utils/gmailMailer.js";
+import { upsertNewsletterLead } from "../utils/googleSheetLeads.js";
 
 if (process.env.SENDGRID_API_KEY) {
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -85,6 +86,21 @@ export const subscribeNewsletter = async (req, res) => {
             console.error("[Newsletter LEAD MAIL]", mailErr.message);
         }
 
+        let sheet = false;
+        try {
+            const saved = await upsertNewsletterLead({
+                email: normalizedEmail,
+                status: "subscribed",
+                source: source || existing?.source || "footer_form",
+                ip: req.ip || existing?.ip,
+                subscribedAt: existing?.subscribedAt || new Date(),
+                updatedAt: new Date(),
+            });
+            sheet = Boolean(saved.saved);
+        } catch (sheetErr) {
+            console.error("[Newsletter SHEET]", sheetErr.message);
+        }
+
         // Confirmation to the subscriber stays on SendGrid when it is configured.
         // A SendGrid failure must not hide a lead that was already saved.
         if (leadStatus !== "already_subscribed" && process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM) {
@@ -118,6 +134,7 @@ export const subscribeNewsletter = async (req, res) => {
         res.status(already ? 200 : 201).json({
             success: true,
             notified,
+            sheet,
             message: already
                 ? "Sie sind bereits für den Newsletter angemeldet!"
                 : "Danke! Sie wurden erfolgreich zum Newsletter hinzugefügt.",
@@ -162,6 +179,19 @@ export const unsubscribeNewsletter = async (req, res) => {
                 success: false,
                 message: "E-Mail-Adresse nicht gefunden.",
             });
+        }
+
+        try {
+            await upsertNewsletterLead({
+                email: subscriber.email,
+                status: "unsubscribed",
+                source: subscriber.source,
+                ip: subscriber.ip,
+                subscribedAt: subscriber.subscribedAt,
+                updatedAt: subscriber.unsubscribedAt || new Date(),
+            });
+        } catch (sheetErr) {
+            console.error("[Newsletter SHEET]", sheetErr.message);
         }
 
         res.json({

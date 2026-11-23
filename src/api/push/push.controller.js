@@ -2,7 +2,7 @@ import PushSubscription from '../../models/pushSubscription.js'
 import ProductInterest from '../../models/productInterest.js'
 import Product from '../../models/product.js'
 import { getVapidPublicKey, sendPushToUuid } from './push.service.js'
-import { sendWelcomePush } from '../utils/pushCampaignCron.js'
+import { sendProductAlertConfirm } from '../utils/pushCampaignCron.js'
 
 function snapshotVendorPrices(product) {
   const offers = Array.isArray(product?.offers) ? product.offers : []
@@ -36,16 +36,27 @@ export async function getPublicKey(_req, res) {
   return res.json({ publicKey: key })
 }
 
-/** POST /api/push/subscribe  { uuid, subscription } */
+/** POST /api/push/subscribe  { uuid, productId, subscription } */
 export async function subscribe(req, res) {
   try {
     const uuid = req.body.uuid || req.cookies?.uuid
+    const productId = req.body.productId
     const subscription = req.body.subscription
     if (!uuid || uuid === 'guest') {
       return res.status(400).json({ error: 'missing_uuid' })
     }
+    if (!productId || !/^[a-f0-9]{24}$/i.test(String(productId))) {
+      return res.status(400).json({ error: 'missing_product' })
+    }
     if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
       return res.status(400).json({ error: 'invalid_subscription' })
+    }
+
+    const product = await Product.findById(productId)
+      .select('slug product_name brand_name dimensions search_price cheapest_offer offers')
+      .lean()
+    if (!product) {
+      return res.status(404).json({ error: 'product_not_found' })
     }
 
     await PushSubscription.findOneAndUpdate(
@@ -67,14 +78,32 @@ export async function subscribe(req, res) {
       { upsert: true, new: true }
     )
 
-    // Welcome + first offers push (async, don't block response)
+    const price = currentCheapest(product)
+    await ProductInterest.findOneAndUpdate(
+      { uuid, productId },
+      {
+        $set: {
+          notifyEnabled: true,
+          slug: product.slug,
+          productName: product.product_name,
+          brandName: product.brand_name,
+          dimensions: product.dimensions,
+          lastPrice: price,
+          lastVendorPrices: snapshotVendorPrices(product),
+          lastOfferCount: Array.isArray(product.offers) ? product.offers.length : 0,
+        },
+        $addToSet: { sources: 'price_alert' },
+      },
+      { upsert: true, new: true }
+    )
+
     setTimeout(() => {
-      sendWelcomePush(uuid).catch(err =>
-        console.error('[PUSH] welcome failed:', err)
+      sendProductAlertConfirm(uuid, productId).catch(err =>
+        console.error('[PUSH] product confirm failed:', err)
       )
     }, 1500)
 
-    return res.json({ success: true })
+    return res.json({ success: true, productId: String(product._id) })
   } catch (err) {
     console.error('[PUSH] subscribe failed:', err)
     return res.status(500).json({ error: 'subscribe_failed' })
@@ -196,12 +225,17 @@ export async function status(req, res) {
     if (!uuid || uuid === 'guest') {
       return res.json({ subscribed: false, interests: 0 })
     }
-    const [subCount, interestCount] = await Promise.all([
+    const productId = req.query.productId
+    const [subCount, interestCount, productInterest] = await Promise.all([
       PushSubscription.countDocuments({ uuid, enabled: true }),
       ProductInterest.countDocuments({ uuid, notifyEnabled: true }),
+      productId
+        ? ProductInterest.findOne({ uuid, productId, notifyEnabled: true }).select('_id').lean()
+        : null,
     ])
     return res.json({
       subscribed: subCount > 0,
+      productSubscribed: Boolean(productInterest),
       interests: interestCount,
       vapidConfigured: Boolean(getVapidPublicKey()),
     })

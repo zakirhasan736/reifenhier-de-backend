@@ -162,30 +162,50 @@ async function sendCampaign(uuid, kind, payload) {
   return result
 }
 
-/** Immediate welcome after enabling notifications */
-export async function sendWelcomePush(uuid) {
-  if (!uuid || uuid === 'guest') return { sent: 0 }
-  const season = currentSeason()
-  const deal = await Product.findOne({
-    merchant_product_third_category: new RegExp(season.key, 'i'),
-    search_price: { $gt: 0 },
-  })
-    .sort({ search_price: 1 })
+/** Confirm the one product the visitor just allowed. No other product is mentioned. */
+export async function sendProductAlertConfirm(uuid, productId) {
+  if (!uuid || uuid === 'guest' || !productId) return { sent: 0 }
+  const product = await Product.findById(productId)
     .select('slug brand_name product_name search_price cheapest_offer')
     .lean()
+  if (!product) return { sent: 0 }
 
-  const price = deal ? cheapest(deal) : null
-  return sendCampaign(uuid, 'welcome', {
-    title: 'Willkommen bei Reifexa Preisalarmen',
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const already = await PushCampaignLog.findOne({
+    uuid,
+    kind: 'product_watch',
+    'meta.productId': String(product._id),
+    sentAt: { $gte: since },
+  }).lean()
+  if (already) return { sent: 0, skipped: 'recent_product' }
+
+  const price = cheapest(product)
+  const name = [product.brand_name, product.product_name].filter(Boolean).join(' ')
+  const payload = {
+    title: 'Preisalarm für diesen Reifen aktiv',
     body: price
-      ? `${season.welcome} Tipp: ${deal.brand_name} ab ${formatEUR(price)}.`
-      : `${season.welcome} Wir benachrichtigen Sie zu Preisen Ihrer angesehenen Produkte.`,
-    url: deal?.slug
-      ? `${SITE_URL}/produkte/${deal.slug}`
-      : `${SITE_URL}${season.path}`,
-    tag: 'welcome',
-    meta: { season: season.key },
+      ? `${name}: wir benachrichtigen Sie nur zu diesem Reifen, wenn der Preis sinkt. Aktuell ab ${formatEUR(price)}.`
+      : `${name}: wir benachrichtigen Sie nur zu diesem Reifen, wenn der Preis sinkt.`,
+    url: product.slug ? `${SITE_URL}/produkte/${product.slug}` : `${SITE_URL}/`,
+    tag: `watch-${product._id}`,
+    meta: { productId: String(product._id) },
+  }
+  const result = await sendPushToUuid(uuid, {
+    title: payload.title,
+    body: payload.body,
+    url: payload.url,
+    tag: payload.tag,
+    kind: 'product_watch',
+    icon: `${SITE_URL}/images/favicon.png`,
+    badge: `${SITE_URL}/images/favicon.png`,
   })
+  if (result.sent > 0) await markCampaignSent(uuid, 'product_watch', payload)
+  return result
+}
+
+/** @deprecated Global welcome promoted unrelated products. Kept so older imports do not send it. */
+export async function sendWelcomePush() {
+  return { sent: 0, skipped: 'product_only' }
 }
 
 /** Cheaper vendor / better price on a recently viewed product */
@@ -393,67 +413,38 @@ async function campaignBestBrandDeal(uuid) {
 }
 
 /**
- * Rotate campaigns for all opted-in users.
- * Day-of-week bias so users get variety: better vendor, season, popular, brand deal, new brand.
+ * Only products a visitor explicitly allowed on the product page.
+ * Season, popular, and brand blasts are not sent.
  */
 export async function runPushCampaignPass() {
   const started = Date.now()
   console.log('[PUSH-CAMPAIGN] Starting pass…')
 
-  const uuids = await PushSubscription.distinct('uuid', { enabled: true })
-  if (!uuids.length) {
-    console.log('[PUSH-CAMPAIGN] No subscribers')
+  const interests = await ProductInterest.find({ notifyEnabled: true })
+    .sort({ updatedAt: -1 })
+    .limit(5000)
+    .lean()
+  const byUuid = new Map()
+  for (const interest of interests) {
+    if (!interest.uuid || interest.uuid === 'guest') continue
+    const list = byUuid.get(interest.uuid) || []
+    list.push(interest)
+    byUuid.set(interest.uuid, list)
+  }
+
+  if (!byUuid.size) {
+    console.log('[PUSH-CAMPAIGN] No product subscriptions')
     return { users: 0, sent: 0 }
   }
 
-  const dow = new Date().getDay() // 0 Sun …
   let sent = 0
+  const uuids = [...byUuid.keys()]
 
   for (const uuid of uuids) {
-    if (!uuid || uuid === 'guest') continue
-
-    // Welcome catch-up if never sent
-    const anySub = await PushSubscription.findOne({ uuid, enabled: true }).lean()
-    if (anySub && !anySub.welcomeSentAt) {
-      const w = await sendWelcomePush(uuid)
-      if (w.sent > 0) {
-        sent += w.sent
-        continue
-      }
-    }
-
     const gate = await canSendCampaign(uuid)
     if (!gate.ok) continue
 
-    const interests = await ProductInterest.find({
-      uuid,
-      notifyEnabled: true,
-    })
-      .sort({ updatedAt: -1 })
-      .limit(15)
-      .lean()
-
-    const builders = []
-    // Always try personal better-vendor first for engaged users
-    if (interests.length) {
-      builders.push(() => campaignBetterVendor(uuid, interests))
-    }
-
-    // Rotate secondary campaigns by weekday
-    if (dow === 1 || dow === 4) builders.push(() => campaignSeason(uuid))
-    if (dow === 2 || dow === 5) builders.push(() => campaignPopular(uuid))
-    if (dow === 3 || dow === 6) builders.push(() => campaignBestBrandDeal(uuid))
-    if (dow === 0 || dow === 3) builders.push(() => campaignNewBrand(uuid, interests))
-    // Fallback fillers every day
-    builders.push(() => campaignPopular(uuid))
-    builders.push(() => campaignBestBrandDeal(uuid))
-    builders.push(() => campaignSeason(uuid))
-
-    let chosen = null
-    for (const build of builders) {
-      chosen = await build()
-      if (chosen) break
-    }
+    const chosen = await campaignBetterVendor(uuid, byUuid.get(uuid) || [])
     if (!chosen) continue
 
     const result = await sendCampaign(uuid, chosen.kind, chosen.payload)
@@ -487,4 +478,5 @@ export default {
   startPushCampaignCron,
   runPushCampaignPass,
   sendWelcomePush,
+  sendProductAlertConfirm,
 }

@@ -254,6 +254,11 @@ export async function runPriceAlertPass() {
   console.log('[PRICE-ALERT] Starting pass…')
 
   // Only interests for users that still have an enabled push subscription
+  await ProductInterest.updateMany(
+    { notifyEnabled: true, sources: { $nin: ['price_alert'] } },
+    { $set: { notifyEnabled: false } }
+  )
+
   const activeUuids = await PushSubscription.distinct('uuid', { enabled: true })
   if (!activeUuids.length) {
     console.log('[PRICE-ALERT] No active push subscribers')
