@@ -26,7 +26,8 @@
     "prices:status": "node scripts/price-sync-now.mjs --status",
     "giga:sync": "node scripts/giga-de-sync.mjs",
     "newsletter:sheet": "node scripts/sync-newsletter-sheet.mjs",
-    "vendors:report": "node scripts/vendor-activity-report.mjs"
+    "vendors:report": "node scripts/vendor-activity-report.mjs",
+    "awin:audit": "node scripts/awin-click-audit.mjs"
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
