@@ -117,6 +117,7 @@ async function stepModels() {
 
 /* 3 */
 async function stepFill() {
+  if (!(await Vehicle.estimatedDocumentCount())) await stepCatalogue() // first run: load the model names
   const status = has('--retry-failed') ? { $nin: ['filled'] } : { $nin: ['filled', 'failed'] }
   const filter = { reviewed: { $ne: true }, 'ai.status': status, 'ai.attempts': { $not: { $gte: has('--retry-failed') ? 4 : 2 } } }
   if (onlyBrand) filter.key = { $regex: `^${onlyBrand}:` }
