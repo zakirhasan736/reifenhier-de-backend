@@ -1,5 +1,5 @@
 import { isMongoReady } from '../../config/db.js'
-import { Vehicle, vehicleKey } from '../fitment/data.js'
+import { visitorLookup, fitmentsForYear } from '../fitment/service.js'
 import Product from '../../models/product.js'
 import { llmJson, llmAvailable } from './llm.js'
 import { SEASON_CATEGORY, pickThree, factsFor, grade, noiseDb, brandTier } from './scoring.js'
@@ -226,23 +226,38 @@ export async function readTyrePhoto(dataUrl) {
 }
 
 /**
- * Car → tyre sizes from the reviewed local catalogue.
+ * Car → tyre sizes from Reifexa's own vehicle table (reviewed or AI-filled).
+ * A car we do not know yet is asked to the AI once and saved, so the table
+ * grows with every new car visitors ask for.
  */
 export async function carSizes({ make, model, year }) {
   make = String(make || '').trim().slice(0, 40)
   model = String(model || '').trim().slice(0, 60)
   year = String(year || '').replace(/\D/g, '').slice(0, 4)
   if (!make || !model) return { error: 'missing_car' }
-  const key = vehicleKey(make, model)
-  const vehicle = isMongoReady() ? await Vehicle.findOne({ key }).lean().catch(() => null) : null
-  const fitments = (vehicle?.fitments || []).filter(record =>
-    !year || (record.yearFrom <= Number(year) && record.yearTo >= Number(year)))
-  if (vehicle?.reviewed && fitments.length) {
-    const sizes = [...new Set(fitments.map(record => record.size))].map(size => {
-      const [width, height, diameter] = size.split(/[/ R]+/)
-      return { width, height, diameter }
-    })
-    return { source: 'reifexa', sizes, note: 'Variantenabhängige Größen. Bitte CoC, Achse und Last-/Geschwindigkeitsindex prüfen.' }
+  if (!isMongoReady()) return { error: 'unknown_car' }
+  const vehicle = await visitorLookup(make, model, year).catch(err => {
+    console.error('[searchlight] car lookup failed:', err?.message || err)
+    return null
+  })
+  let fitments = fitmentsForYear(vehicle, year).filter(record => record.axle !== 'rear')
+  if (!fitments.length && year) fitments = fitmentsForYear(vehicle).filter(record => record.axle !== 'rear')
+  if (!fitments.length) return { error: 'unknown_car' }
+  const seen = new Set()
+  const sizes = []
+  for (const record of fitments) {
+    if (seen.has(record.size)) continue
+    seen.add(record.size)
+    const [width, height, diameter] = record.size.split(/[/ R]+/)
+    sizes.push({ width, height, diameter, loadIndex: record.loadIndex || '', speedIndex: record.speedIndex || '' })
   }
-  return { error: 'unknown_car' }
+  const variants = [...new Set(fitments.map(record => record.variant))]
+  return {
+    source: vehicle.reviewed ? 'reifexa' : 'ai',
+    generation: `${vehicle.make} ${variants.slice(0, 2).join(' / ')}`,
+    sizes: sizes.slice(0, 6),
+    note: vehicle.reviewed
+      ? 'Variantenabhängige Größen. Bitte CoC, Achse und Last-/Geschwindigkeitsindex prüfen.'
+      : 'Typische Werksgrößen (KI-Vorschlag, noch nicht von uns geprüft). Bitte vor dem Kauf auf der Reifenflanke oder im CoC-Papier prüfen.',
+  }
 }
