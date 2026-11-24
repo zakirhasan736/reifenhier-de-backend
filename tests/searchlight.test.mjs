@@ -79,9 +79,9 @@ test('photo and car without AI give clear errors', async () => {
   assert.equal((await svc.carSizes({ make: 'VW', model: '' })).error, 'missing_car')
 })
 
-test('vehicle lookup on a catalogue miss never calls a provider', async t => {
+test('vehicle lookup without a database never calls the AI', async t => {
   const externalFetch = t.mock.method(globalThis, 'fetch', async () => {
-    throw new Error('Vehicle lookup must only use local data')
+    throw new Error('no AI call without our database')
   })
   const result = await svc.carSizes({ make: 'VW', model: 'Golf', year: '2016' })
   assert.equal(result.error, 'unknown_car')
