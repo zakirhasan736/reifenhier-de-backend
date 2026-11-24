@@ -1,17 +1,29 @@
 # reifenhier-de-backend
 ### German vehicle fitment
 
-The initial target list is a curated catalogue of 866 model names across 64 makes for the
-German market, including current and older nameplates. The list is curated and has not been ranked by vehicle registrations. Load the names into the review queue with MongoDB configured.
+Reifexa keeps its own vehicle → tyre-size table (`fitmentvehicles`): one document
+per model family (VW Golf, BMW 3er …) with all generations, build years and
+factory tyre sizes per axle, plus `rank` (1 = most common in Germany).
+
+**Fill it with the AI** (Anthropic, needs `ANTHROPIC_API_KEY` and `MONGODB_URI`):
 
 ```sh
-node scripts/seed-fitments.mjs scripts/fitment-models-de.json --catalogue
+node scripts/fitment-ai-fill.mjs --step fill --limit 20   # try 20 models first
+node scripts/fitment-ai-fill.mjs                          # everything (resumable, Ctrl+C to pause)
+node scripts/fitment-ai-fill.mjs --status                 # what is in the database
 ```
 
-Enter fitments from original measurements or sources permitted for the
-intended use and resale. Record the variant, year range, axle, size and source
-at `/admin-fitment` with an existing admin JWT. The website finder and
-commercial API read reviewed records from Reifexa's database.
+Steps: load the 866 names of `scripts/fitment-models-de.json` → ask the AI for all
+models of each make (adds missing ones, estimates popularity) → per model all
+generations with years and sizes, most common first → rank. `FITMENT_MODEL`
+(default `claude-haiku-5-5`) chooses the model; the script prints tokens and cost.
+
+AI records are saved as *KI-Vorschlag … bitte prüfen* and the model stays
+`reviewed: false`. Check and correct them at `/admin-fitment` (admin JWT); a
+reviewed model is never changed by the AI again. Searchlight also asks the AI
+once for a car that is missing and saves it (the table grows by itself).
+The website box "Passt z. B. auf" and the API mark reviewed models with
+`verified: true`.
 
 To validate and then import source-reviewed fitments in bulk, supply a JSON
 array of objects containing `make`, `model` and a `fitments` array. Each
@@ -24,6 +36,10 @@ without a database to validate the file.
 node scripts/import-reviewed-fitments.mjs reviewed.json --check
 node scripts/import-reviewed-fitments.mjs reviewed.json --apply
 ```
+
+Plans (`src/api/fitment/data.js`) give access to the top N models by `rank`;
+size search and load/speed index are in Pro and Advanced. The OpenAPI file is
+public at `/api/fitment/openapi.json`, usage at `GET /api/fitment/v1/usage`.
 
 Use `GET /api/fitment/v1/vehicles?make=VW&model=Golf&year=2018` with an
 approved API key and IP to filter by model year. It also accepts a tyre size
