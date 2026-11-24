@@ -13,12 +13,20 @@ export function isGigaVendor(row = {}) {
   return /giga/i.test(String(row.vendor || row.merchant_name || ''))
 }
 
+/** giga-reifen.ch URL (with or without www). */
+export function isSwissGigaUrl(url) {
+  try {
+    return /(^|\.)giga-reifen\.ch$/i.test(new URL(String(url || '')).hostname)
+  } catch {
+    return false
+  }
+}
+
 /** Swiss-shop row: francs, or a giga-reifen.ch product URL. */
 export function isSwissGigaOffer(row = {}) {
   if (!isGigaVendor(row)) return false
   const currency = String(row.currency || '').toUpperCase()
-  const link = String(row.merchant_deep_link || '')
-  return currency === 'CHF' || /(^|\.)giga-reifen\.ch\b/i.test(link)
+  return currency === 'CHF' || isSwissGigaUrl(row.merchant_deep_link)
 }
 
 /** Same product on the German shop, whether the stored link is .ch or already .de. */
