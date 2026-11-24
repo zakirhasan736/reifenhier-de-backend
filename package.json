@@ -27,7 +27,7 @@
     "giga:sync": "node scripts/giga-de-sync.mjs",
     "newsletter:sheet": "node scripts/sync-newsletter-sheet.mjs",
     "vendors:report": "node scripts/vendor-activity-report.mjs",
-    "awin:audit": "node scripts/awin-click-audit.mjs"
+    "awin:audit": "node scripts/awin-click-audit.mjs",
     "fitment:fill": "node scripts/fitment-ai-fill.mjs",
     "fitment:status": "node scripts/fitment-ai-fill.mjs --status"
   },
