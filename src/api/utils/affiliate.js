@@ -40,6 +40,26 @@ async function germanGigaExitUrl(awinUrl) {
   return gigaGermanClickUrl(process.env.AWIN_AFFILIATE_ID, destination)
 }
 
+/**
+ * The exact URL a shopper is sent to for a decoded offer link (AWIN deep link
+ * with publisher id, merchant id and clickrefs). Shared with the audit script.
+ */
+export async function buildVendorExitTarget(decodedUrl, { productId, uuid, from, vendor, vendorId, campaignId } = {}) {
+  let trackedUrl = decodedUrl
+  if (extractAwinMerchantId(decodedUrl) === GIGA_MERCHANT_ID) {
+    trackedUrl = await germanGigaExitUrl(decodedUrl)
+  }
+  return prepareAwinExitUrl(trackedUrl, {
+    productId,
+    uuid,
+    from,
+    vendor,
+    vendorId,
+    campaignId: campaignId || process.env.AWIN_CAMPAIGN_ID || '566',
+    affiliateId: process.env.AWIN_AFFILIATE_ID,
+  })
+}
+
 function anonymizeIp(ip) {
   if (!ip || ip === 'unknown') return 'unknown'
   if (ip.includes('.')) {
@@ -293,19 +313,7 @@ async function handleVendorExit(req, res, token) {
   }
 
   const campaignId = process.env.AWIN_CAMPAIGN_ID || '566'
-  let trackedUrl = decodedUrl
-  if (extractAwinMerchantId(decodedUrl) === GIGA_MERCHANT_ID) {
-    trackedUrl = await germanGigaExitUrl(decodedUrl)
-  }
-  const exitUrl = prepareAwinExitUrl(trackedUrl, {
-    productId,
-    uuid,
-    from,
-    vendor,
-    vendorId,
-    campaignId,
-    affiliateId: process.env.AWIN_AFFILIATE_ID,
-  })
+  const exitUrl = await buildVendorExitTarget(decodedUrl, { productId, uuid, from, vendor, vendorId, campaignId })
 
   // Log the click in the background: the shopper is redirected immediately and a slow,
   // full or unreachable database can never block the way to the shop (lost sale).

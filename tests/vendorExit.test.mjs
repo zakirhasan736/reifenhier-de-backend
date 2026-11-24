@@ -36,3 +36,13 @@ test('vendor exit redirects to AWIN immediately even when the database is unavai
   assert.ok(ms < 1500, `redirect took ${ms} ms`)
   await new Promise(r => setTimeout(r, 3500)) // let the background log attempt time out
 })
+
+test('buildVendorExitTarget: AWIN link keeps publisher, merchant and clickref', async () => {
+  process.env.AWIN_AFFILIATE_ID = '2985775'
+  const { buildVendorExitTarget } = await import('../src/api/utils/affiliate.js')
+  const out = new URL(await buildVendorExitTarget('https://www.awin1.com/pclick.php?p=123&a=2985775&m=13321', { productId: '64b7f0c0ffee000000000001', from: 'produktseite', vendor: 'reifen.de', vendorId: '13321' }))
+  assert.equal(out.hostname, 'www.awin1.com')
+  assert.equal(out.searchParams.get('a'), '2985775')
+  assert.equal(out.searchParams.get('m'), '13321')
+  assert.match(out.searchParams.get('clickref'), /^rx-/)
+})
