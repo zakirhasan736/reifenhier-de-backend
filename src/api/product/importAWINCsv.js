@@ -17,6 +17,7 @@ import { heartbeat } from "../utils/importLock.js";
 // import { spawn } from "child_process";
 import { isCarTyreGroup, isValidVendor, isValidSecondCategory, isValidThirdCategory } from "../utils/validators.js";
 import { isReifenComRow, isReifenComOffer } from "../utils/reifenCom.js";
+import { hiddenSwissGiga } from "../utils/gigaShop.js";
 import { detectCsvSeparator, parseAwinFeedMeta } from "../utils/awinCsv.js";
 import { extractAwinAffiliateId, logAwinTrackingMismatch } from "../utils/awinTracking.js";
 import {
@@ -456,7 +457,10 @@ export async function importAWINCsv(filePath) {
                             continue;
                         }
 
-                        const vendorRowsFiltered = vendorRows.filter(hasAwinAffiliateLink);
+                        // Giga's only feed is the Swiss shop (CHF): hidden unless SHOW_SWISS_GIGA=true
+                        const vendorRowsFiltered = vendorRows.filter(
+                            (row) => hasAwinAffiliateLink(row) && !hiddenSwissGiga(row)
+                        );
                         if (!vendorRowsFiltered.length) {
                             importStatus.skipped++;
                             continue;

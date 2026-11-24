@@ -2,6 +2,7 @@ import FeaturedSettings from '../../models/FeaturedSettings.js';
 import Product from '../../models/product.js';
 import Click from '../../models/click.js';
 import AwinTransaction from '../../models/awinTransaction.js';
+import { hiddenSwissGiga } from '../utils/gigaShop.js';
 import { startCsvImportAsync } from "./importAWINCsv.js";
 
 
@@ -404,6 +405,7 @@ function sortOffersByPrice(offers = []) {
 
 function liveOfferStats(offers = []) {
     const sorted = sortOffersByPrice(offers)
+        .filter((o) => !hiddenSwissGiga(o))
         .map((o) => ({
         ...o,
         price: toNumericPrice(o.price),

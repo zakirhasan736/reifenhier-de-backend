@@ -13,13 +13,29 @@ export function isGigaVendor(row = {}) {
   return /giga/i.test(String(row.vendor || row.merchant_name || ''))
 }
 
+/** giga-reifen.ch URL (with or without www). */
+function isSwissUrl(url) {
+  try {
+    return /(^|\.)giga-reifen\.ch$/i.test(new URL(String(url || '')).hostname)
+  } catch {
+    return false
+  }
+}
+
 /** Swiss-shop row: francs, or a giga-reifen.ch product URL. */
 export function isSwissGigaOffer(row = {}) {
   if (!isGigaVendor(row)) return false
   const currency = String(row.currency || '').toUpperCase()
-  const link = String(row.merchant_deep_link || '')
-  return currency === 'CHF' || /(^|\.)giga-reifen\.ch\b/i.test(link)
+  return currency === 'CHF' || isSwissUrl(row.merchant_deep_link)
 }
+
+/**
+ * Giga Tyres EU only offers its Swiss feed (giga-reifen.ch, CHF). Those offers
+ * are hidden on reifexa.de (francs shown as euros, Swiss shop) unless
+ * SHOW_SWISS_GIGA=true. Links are never rewritten: AWIN's link is used as is.
+ */
+export const hideSwissGiga = () => String(process.env.SHOW_SWISS_GIGA || 'false').toLowerCase() !== 'true'
+export const hiddenSwissGiga = (row) => hideSwissGiga() && isSwissGigaOffer(row)
 
 /** Same product on the German shop, whether the stored link is .ch or already .de. */
 export function germanGigaUrl(merchantUrl) {
