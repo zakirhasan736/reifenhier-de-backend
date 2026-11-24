@@ -46,3 +46,14 @@ test('buildVendorExitTarget: AWIN link keeps publisher, merchant and clickref', 
   assert.equal(out.searchParams.get('m'), '13321')
   assert.match(out.searchParams.get('clickref'), /^rx-/)
 })
+
+test('Giga: the AWIN link is used as it is (no domain rewrite)', async () => {
+  process.env.AWIN_AFFILIATE_ID = '2985775'
+  const { buildVendorExitTarget } = await import('../src/api/utils/affiliate.js')
+  const out = new URL(await buildVendorExitTarget('https://www.awin1.com/pclick.php?p=555&a=2985775&m=9352', { productId: '64b7f0c0ffee000000000001', from: 'produktseite', vendor: 'Giga Tyres EU', vendorId: '9352' }))
+  assert.equal(out.pathname, '/pclick.php')
+  assert.equal(out.searchParams.get('p'), '555')
+  assert.equal(out.searchParams.get('m'), '9352')
+  assert.equal(out.searchParams.get('ued'), null)
+  assert.match(out.searchParams.get('clickref'), /^rx-/)
+})

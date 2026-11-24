@@ -6,7 +6,6 @@ import {
   extractAwinMerchantId,
   isNonHumanExitRequest,
 } from './awinTracking.js'
-import { GIGA_MERCHANT_ID, germanGigaUrl, gigaGermanClickUrl } from './gigaShop.js'
 import Product from '../../models/product.js'
 import Click from '../../models/click.js'
 import ProductInterest from '../../models/productInterest.js'
@@ -15,41 +14,14 @@ import { notifyVendorClick } from '../adminAlerts/adminAlerts.service.js'
 
 const router = express.Router()
 
-/** Point a Giga click at giga-reifen.de. Falls back to the original link. */
-async function germanGigaExitUrl(awinUrl) {
-  let productId = ''
-  try {
-    productId = new URL(awinUrl).searchParams.get('p') || ''
-  } catch {
-    return awinUrl
-  }
-  if (!productId) return awinUrl
-  const ids = [productId]
-  const numeric = Number(productId)
-  if (Number.isFinite(numeric)) ids.push(numeric)
-  const lookup = Product.findOne(
-    { offers: { $elemMatch: { aw_product_id: { $in: ids } } } },
-    { 'offers.$': 1 }
-  ).lean()
-  const doc = await Promise.race([
-    lookup,
-    new Promise((resolve) => setTimeout(() => resolve(null), 500)),
-  ])
-  const destination = germanGigaUrl(doc?.offers?.[0]?.merchant_deep_link)
-  if (!destination) return awinUrl
-  return gigaGermanClickUrl(process.env.AWIN_AFFILIATE_ID, destination)
-}
-
 /**
  * The exact URL a shopper is sent to for a decoded offer link (AWIN deep link
  * with publisher id, merchant id and clickrefs). Shared with the audit script.
  */
 export async function buildVendorExitTarget(decodedUrl, { productId, uuid, from, vendor, vendorId, campaignId } = {}) {
-  let trackedUrl = decodedUrl
-  if (extractAwinMerchantId(decodedUrl) === GIGA_MERCHANT_ID) {
-    trackedUrl = await germanGigaExitUrl(decodedUrl)
-  }
-  return prepareAwinExitUrl(trackedUrl, {
+  // The link AWIN gave us for this offer is used as it is (no shop/domain rewrite);
+  // only our publisher id, merchant id and clickrefs are added.
+  return prepareAwinExitUrl(decodedUrl, {
     productId,
     uuid,
     from,
