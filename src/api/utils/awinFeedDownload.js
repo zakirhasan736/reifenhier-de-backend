@@ -145,27 +145,6 @@ function combine(files, out) {
 }
 
 /**
- * Giga Tyres publishes one feed per country shop. Reifexa shows the German shop
- * (giga-reifen.de, EUR); the Swiss feed (giga-reifen.ch, CHF) is dropped row by
- * row in the import. When a Giga feed is selected, also take every other joined
- * Giga feed so the German rows are always part of the import.
- */
-export function withGermanGigaFeed(feeds, list, log = () => {}) {
-    const text = (f) => Object.values(f).map((v) => String(v || "")).filter((v) => v.length < 120 && !/https?:|apikey/i.test(v)).join(" ");
-    const isGiga = (f) => /giga/i.test(text(f));
-    if (!feeds.some(isGiga)) return feeds;
-    const joined = (f) => /^\s*(active|joined)\s*$/i.test(f["Membership Status"] || "");
-    const extra = list.filter((f) => isGiga(f) && joined(f) && !feeds.some((x) => String(x["Feed ID"]) === String(f["Feed ID"])));
-    if (extra.length) {
-        log(`[AWIN] + Giga feeds ${extra.map((f) => f["Feed ID"]).join(", ")} added (German shop giga-reifen.de)`);
-        return [...feeds, ...extra];
-    }
-    const german = feeds.filter(isGiga).some((f) => /giga-reifen\.de|deutschland|\bde\b/i.test(text(f)) && !/\.ch|schweiz|\bch\b/i.test(text(f)));
-    if (!german) log("[AWIN] ⚠ Only a Swiss Giga feed is joined. Join the giga-reifen.de feed in AWIN, otherwise Giga offers are not shown.");
-    return feeds;
-}
-
-/**
  * Download the AWIN feed shop by shop. Returns
  * { file, mode: "per-feed"|"single", feeds: [{fid, name, status, rows, bytes}] }.
  */
@@ -221,7 +200,6 @@ export async function downloadAwinFeed(feedUrl, { outDir = os.tmpdir(), log = co
         log(`[AWIN] ⚠ Feed ids in AWIN_CSV_URL not in your feed list (not joined?): ${missing.join(", ")}`);
     }
     if (!feeds.length) return single("no matching feeds in feed list");
-    feeds = withGermanGigaFeed(feeds, list, log);
 
     log(`[AWIN] Downloading ${feeds.length} shop feeds one by one…`);
     const files = [];

@@ -6,7 +6,6 @@ import {
   extractAwinMerchantId,
   isNonHumanExitRequest,
 } from './awinTracking.js'
-import { GIGA_MERCHANT_ID, germanGigaUrl, gigaGermanClickUrl, isSwissGigaUrl } from './gigaShop.js'
 import Product from '../../models/product.js'
 import Click from '../../models/click.js'
 import ProductInterest from '../../models/productInterest.js'
@@ -16,67 +15,13 @@ import { notifyVendorClick } from '../adminAlerts/adminAlerts.service.js'
 const router = express.Router()
 
 /**
- * Every Giga click must land on the German shop (giga-reifen.de), even when
- * AWIN's link points to giga-reifen.ch:
- *  1. link with a target URL (cread.php …&ued=…, or p=https://…) → swap that URL to .de
- *  2. product link (pclick.php?p=<aw product id>) → look up the offer's shop URL on
- *     the product; .ch → new AWIN link to the same product on .de; .de → keep
- *  3. nothing found → keep the link (an AWIN product link of the German feed is
- *     already .de)
- */
-export async function germanGigaExitUrl(awinUrl, productId) {
-  let parsed
-  try {
-    parsed = new URL(awinUrl)
-  } catch {
-    return awinUrl
-  }
-  for (const key of ['ued', 'url', 'p']) {
-    const value = parsed.searchParams.get(key)
-    if (!value || !/^https?:\/\//i.test(value)) continue
-    const german = germanGigaUrl(value)
-    if (!german) return awinUrl
-    parsed.searchParams.set(key, german)
-    return parsed.toString()
-  }
-  const awProductId = parsed.searchParams.get('p') || ''
-  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 1500))
-  let offer = null
-  try {
-    if (/^[a-f0-9]{24}$/i.test(String(productId || ''))) {
-      const doc = await Promise.race([Product.findById(productId, { offers: 1 }).lean(), timeout])
-      const gigaOffers = (doc?.offers || []).filter((o) => String(o.vendor_id) === GIGA_MERCHANT_ID || /giga/i.test(String(o.vendor || '')))
-      offer = gigaOffers.find((o) => String(o.aw_product_id) === awProductId) || gigaOffers[0] || null
-    }
-    if (!offer && awProductId) {
-      const ids = [awProductId]
-      if (Number.isFinite(Number(awProductId))) ids.push(Number(awProductId))
-      const doc = await Promise.race([
-        Product.findOne({ offers: { $elemMatch: { aw_product_id: { $in: ids } } } }, { 'offers.$': 1 }).lean(),
-        timeout,
-      ])
-      offer = doc?.offers?.[0] || null
-    }
-  } catch {
-    return awinUrl
-  }
-  const shopUrl = String(offer?.merchant_deep_link || '')
-  if (!isSwissGigaUrl(shopUrl)) return awinUrl // already German (or unknown)
-  const destination = germanGigaUrl(shopUrl)
-  if (!destination) return awinUrl
-  return gigaGermanClickUrl(process.env.AWIN_AFFILIATE_ID, destination)
-}
-
-/**
  * The exact URL a shopper is sent to for a decoded offer link (AWIN deep link
  * with publisher id, merchant id and clickrefs). Shared with the audit script.
  */
 export async function buildVendorExitTarget(decodedUrl, { productId, uuid, from, vendor, vendorId, campaignId } = {}) {
-  let trackedUrl = decodedUrl
-  if (extractAwinMerchantId(decodedUrl) === GIGA_MERCHANT_ID || /giga-reifen\.ch/i.test(decodedUrl)) {
-    trackedUrl = await germanGigaExitUrl(decodedUrl, productId)
-  }
-  return prepareAwinExitUrl(trackedUrl, {
+  // The link AWIN gave us for this offer is used as it is (no shop/domain rewrite);
+  // only our publisher id, merchant id and clickrefs are added.
+  return prepareAwinExitUrl(decodedUrl, {
     productId,
     uuid,
     from,
