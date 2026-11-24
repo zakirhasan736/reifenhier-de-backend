@@ -13,18 +13,24 @@ const activities = (report) => (report.rows ?? []).map(row => ({ label: label(ro
 const normalize = (name) => name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 let locations;
 let byWord;
+let regionByKey;
 function cityPoint(cities, country, name) {
     if (!locations) {
         locations = new Map();
         byWord = new Map();
+        regionByKey = new Map();
         for (const city of cities) {
             const key = countryKey(city.country, city.name);
             const [lng, lat] = city.loc.coordinates;
             const previous = locations.get(key);
-            if (previous === undefined)
+            if (previous === undefined) {
                 locations.set(key, [lat, lng]);
-            else if (previous && (Math.abs(previous[0] - lat) > 0.2 || Math.abs(previous[1] - lng) > 0.2))
+                regionByKey.set(key, city.adminCode || '');
+            }
+            else if (previous && (Math.abs(previous[0] - lat) > 0.2 || Math.abs(previous[1] - lng) > 0.2)) {
                 locations.set(key, null);
+                regionByKey.set(key, '');
+            }
             const word = normalize(city.name).split(/[\s,/-]+/)[0];
             const wordKey = city.country + '/' + word;
             if (word && !byWord.has(wordKey))
@@ -36,6 +42,16 @@ function cityPoint(cities, country, name) {
     const word = name ? normalize(name).split(/[\s,/-]+/)[0] : '';
     return (word && byWord.get(country + '/' + word)) || null;
 }
+/** State / region of a city (Germany, Austria, Switzerland), '' when unknown or ambiguous. */
+function cityRegion(country, name) {
+    const code = name && regionByKey ? regionByKey.get(countryKey(country, name)) : '';
+    return (code && REGIONS[country]?.[code]) || '';
+}
+const REGIONS = {
+    DE: { '01': 'Baden-Württemberg', '02': 'Bayern', '03': 'Bremen', '04': 'Hamburg', '05': 'Hessen', '06': 'Niedersachsen', '07': 'Nordrhein-Westfalen', '08': 'Rheinland-Pfalz', '09': 'Saarland', '10': 'Schleswig-Holstein', '11': 'Brandenburg', '12': 'Mecklenburg-Vorpommern', '13': 'Sachsen', '14': 'Sachsen-Anhalt', '15': 'Thüringen', '16': 'Berlin' },
+    AT: { '01': 'Burgenland', '02': 'Kärnten', '03': 'Niederösterreich', '04': 'Oberösterreich', '05': 'Salzburg', '06': 'Steiermark', '07': 'Tirol', '08': 'Vorarlberg', '09': 'Wien' },
+    CH: { AG: 'Aargau', AI: 'Appenzell Innerrhoden', AR: 'Appenzell Ausserrhoden', BE: 'Bern', BL: 'Basel-Landschaft', BS: 'Basel-Stadt', FR: 'Freiburg', GE: 'Genf', GL: 'Glarus', GR: 'Graubünden', JU: 'Jura', LU: 'Luzern', NE: 'Neuenburg', NW: 'Nidwalden', OW: 'Obwalden', SG: 'St. Gallen', SH: 'Schaffhausen', SO: 'Solothurn', SZ: 'Schwyz', TG: 'Thurgau', TI: 'Tessin', UR: 'Uri', VD: 'Waadt', VS: 'Wallis', ZG: 'Zug', ZH: 'Zürich' },
+};
 function countryKey(country, name) {
     return country + '/' + normalize(name);
 }
@@ -88,7 +104,7 @@ async function load(property) {
             const name = !rawName || /^\(not set\)$/i.test(rawName) ? '' : rawName;
             const center = countryCenter(country);
             const point = (name && cityPoint(cities, country, name)) || center?.point || null;
-            return { country, label: name || center?.name || country, count: count(row), point };
+            return { country, label: name || center?.name || country, region: name ? cityRegion(country, name) : '', count: count(row), point };
         }).filter(row => row.count > 0), pages: activities(pages), acquisition: sources };
 }
 export async function liveTraffic(_req, res) {
@@ -109,3 +125,4 @@ export async function liveTraffic(_req, res) {
     }
     return res.set('Cache-Control', 'public, max-age=10').json(snapshot);
 }
+export const __test = { cityPoint, cityRegion };
