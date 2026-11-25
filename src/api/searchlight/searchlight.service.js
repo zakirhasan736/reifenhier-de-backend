@@ -2,7 +2,8 @@ import { isMongoReady } from '../../config/db.js'
 import { visitorLookup, fitmentsForYear } from '../fitment/service.js'
 import Product from '../../models/product.js'
 import { llmJson, llmAvailable } from './llm.js'
-import { SEASON_CATEGORY, pickThree, factsFor, grade, noiseDb, brandTier } from './scoring.js'
+import { SEASON_CATEGORY, pickThree, factsFor, grade, noiseDb, brandTier, applyExtras, matchScores, prosCons } from './scoring.js'
+import { parseQuery, seasonForDate } from './parse.js'
 
 const toNum = v => {
   if (typeof v === 'number' && Number.isFinite(v)) return v
@@ -32,9 +33,10 @@ function withPrice(p) {
 }
 
 /** Public card shape for the frontend (no internal fields). */
-export function card(p, slot, reason) {
+export function card(p, slot, reason, extra = {}) {
   const o = p.bestOffer || {}
   return {
+    ...extra,
     slot,
     id: String(p._id),
     slug: p.slug,
@@ -53,6 +55,9 @@ export function card(p, slot, reason) {
     vendor: o.vendor || '',
     vendorId: o.vendor_id || '',
     token: o.affiliate_product_cloak_url || '',
+    inStock: o.in_stock !== false,
+    rating: Number(p.average_rating) > 0 && Number(p.review_count) > 0 ? Math.round(Number(p.average_rating) * 10) / 10 : null,
+    reviews: Number(p.review_count) || 0,
     reason: reason || '',
   }
 }
@@ -69,8 +74,9 @@ const SLOT_LABEL = { best_price: 'Bester Preis', best_choice: 'Beste Wahl', prem
 /** Short German reasons: AI-phrased when available, else the plain facts. */
 async function reasons(picks, avg, criteria) {
   const facts = Object.fromEntries(Object.entries(picks).filter(([, p]) => p).map(([slot, p]) => [slot, factsFor(p, slot, avg)]))
-  const fallback = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.slice(0, 3).join(' · ')]))
-  if (!llmAvailable() || !Object.keys(facts).length) return fallback
+  const fallback = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, plainReason(k, picks[k], f, criteria)]))
+  // AI wording is optional (slower); the plain reasons are built from the same facts
+  if (process.env.SEARCHLIGHT_AI_REASONS !== '1' || !llmAvailable() || !Object.keys(facts).length) return fallback
   const out = await llmJson({
     system:
       'Du schreibst für einen deutschen Reifen-Preisvergleich kurze Begründungen. Nutze NUR die gelieferten Fakten, erfinde nichts (keine Testergebnisse, keine Zahlen, die nicht genannt sind). Je Reifen ein Satz, höchstens 18 Wörter, Du-Form. Antworte nur mit JSON.',
@@ -83,6 +89,24 @@ async function reasons(picks, avg, criteria) {
   return Object.fromEntries(Object.keys(facts).map(k => [k, typeof out[k] === 'string' && out[k].length < 220 ? out[k] : fallback[k]]))
 }
 
+const PRIORITY_WHY = {
+  balanced: 'die beste Balance aus Preis, Nasshaftung und Marke',
+  cheap: 'ein kleiner Preis bei solider Nasshaftung',
+  safety: 'die beste Nasshaftung und eine starke Marke',
+  quiet: 'wenig Lärm und geringer Rollwiderstand',
+}
+
+/** One readable sentence per pick, only from our own data. */
+function plainReason(slot, p, facts, criteria = {}) {
+  if (!p) return ''
+  const wet = p.wet_grip ? String(p.wet_grip).toUpperCase()[0] : ''
+  if (slot === 'best_price') return `Der günstigste solide Reifen: 4 Stück für ${(p.price * 4).toFixed(2).replace('.', ',')} €${wet ? `, Nasshaftung ${wet}` : ''}.`
+  if (slot === 'premium') return `Wenn es das Beste sein soll: ${brandTier(p.brand_name) === 3 ? 'Premiummarke' : 'Top-Label'}${wet ? ` mit Nasshaftung ${wet}` : ''}.`
+  const why = PRIORITY_WHY[criteria.priority] || PRIORITY_WHY.balanced
+  const brandNote = criteria.brand && String(p.brand_name || '').toLowerCase().startsWith(String(criteria.brand).toLowerCase()) ? ` Deine Wunschmarke ${criteria.brand}.` : ''
+  return `Passt am besten zu dir: ${why}.${brandNote}`.replace(/\s+/g, ' ').trim() || facts.slice(0, 3).join(' · ')
+}
+
 const SEASONS = ['sommer', 'winter', 'ganzjahr']
 const PRIORITIES = ['balanced', 'cheap', 'safety', 'quiet']
 
@@ -93,6 +117,7 @@ export async function understand(text, known = {}) {
       'Du extrahierst aus einer Kundenanfrage für Autoreifen strukturierte Kriterien. Erfinde keine Reifengröße: nur wenn der Kunde sie nennt. Antworte nur mit JSON.',
     prompt: `Bereits bekannt: ${JSON.stringify(known)}\nAnfrage: """${String(text).slice(0, 600)}"""\nJSON-Felder: width (z.B. "205"), height ("55"), diameter ("16"), season ("sommer"|"winter"|"ganzjahr"|null), priority ("balanced"|"cheap"|"safety"|"quiet"), budgetPer4 (Zahl in Euro für 4 Reifen oder 0), minLoadIndex (Zahl oder 0), minSpeed (Buchstabe oder ""), car ({"make":"","model":"","year":""} wenn ein Auto genannt ist), followUp (eine kurze Rückfrage auf Deutsch, wenn Größe UND Auto fehlen oder die Saison unklar ist, sonst "").`,
     maxTokens: 300,
+    timeoutMs: 9000,
   })
 }
 
@@ -102,33 +127,71 @@ export async function understand(text, known = {}) {
  */
 export async function recommend(input = {}) {
   let c = {
-    width: input.width,
-    height: input.height,
-    diameter: input.diameter,
+    width: input.width ? String(input.width).replace(/\D/g, '') : '',
+    height: input.height ? String(input.height).replace(/\D/g, '') : '',
+    diameter: input.diameter ? String(input.diameter).replace(/\D/g, '') : '',
     season: SEASONS.includes(input.season) ? input.season : null,
     priority: PRIORITIES.includes(input.priority) ? input.priority : 'balanced',
     budgetPer4: Number(input.budgetPer4) || 0,
     minLoadIndex: Number(input.minLoadIndex) || 0,
-    minSpeed: String(input.minSpeed || ''),
+    minSpeed: String(input.minSpeed || '').slice(0, 2),
+    brand: String(input.brand || '').slice(0, 30),
+    runflat: Boolean(input.runflat),
+    xl: Boolean(input.xl),
   }
+  let car = input.car && input.car.make && input.car.model ? input.car : null
+
   if (input.text) {
-    const u = await understand(input.text, c)
-    if (u) {
-      for (const k of ['width', 'height', 'diameter']) if (!c[k] && u[k]) c[k] = String(u[k]).replace(/\D/g, '')
-      if (!c.season && SEASONS.includes(u.season)) c.season = u.season
-      if (input.priority == null && PRIORITIES.includes(u.priority)) c.priority = u.priority
-      if (!c.budgetPer4 && Number(u.budgetPer4) > 0) c.budgetPer4 = Number(u.budgetPer4)
-      if (!c.minLoadIndex && Number(u.minLoadIndex) > 0) c.minLoadIndex = Number(u.minLoadIndex)
-      if (!c.minSpeed && u.minSpeed) c.minSpeed = String(u.minSpeed).slice(0, 2)
-      if (u.car?.model) c.car = u.car
-      if (u.followUp && !(c.width && c.height && c.diameter)) c.followUp = String(u.followUp).slice(0, 200)
-    } else if (!(c.width && c.height && c.diameter)) {
-      // no AI configured: try to read a size directly from the text
-      const m = String(input.text).match(/(\d{3})\s*\/\s*(\d{2})\s*Z?R?\s*(\d{2})/i)
-      if (m) [c.width, c.height, c.diameter] = [m[1], m[2], m[3]]
-      if (/winter/i.test(input.text)) c.season = 'winter'
-      else if (/sommer/i.test(input.text)) c.season = 'sommer'
-      else if (/ganzjahr|allwetter|all.?season/i.test(input.text)) c.season = 'ganzjahr'
+    // 1) fast: read the sentence ourselves
+    const q = parseQuery(input.text)
+    if (q.width && !(c.width && input.keepSize)) Object.assign(c, { width: q.width, height: q.height, diameter: q.diameter })
+    if (q.minLoadIndex) c.minLoadIndex = q.minLoadIndex
+    if (q.minSpeed) c.minSpeed = q.minSpeed
+    if (q.season) c.season = q.season
+    if (q.priority) c.priority = q.priority
+    if (q.budgetPer4) c.budgetPer4 = q.budgetPer4
+    if (q.brand) c.brand = q.brand
+    if (q.runflat) c.runflat = true
+    if (q.xl) c.xl = true
+    if (q.car?.model) car = q.car
+    // 2) AI only when we found neither a size nor a car
+    if (!(c.width && c.height && c.diameter) && !car) {
+      const u = await understand(input.text, c)
+      if (u) {
+        for (const k of ['width', 'height', 'diameter']) if (!c[k] && u[k]) c[k] = String(u[k]).replace(/\D/g, '')
+        if (!c.season && SEASONS.includes(u.season)) c.season = u.season
+        if (!q.priority && PRIORITIES.includes(u.priority) && input.priority == null) c.priority = u.priority
+        if (!c.budgetPer4 && Number(u.budgetPer4) > 0) c.budgetPer4 = Number(u.budgetPer4)
+        if (!c.minLoadIndex && Number(u.minLoadIndex) > 0) c.minLoadIndex = Number(u.minLoadIndex)
+        if (!c.minSpeed && u.minSpeed) c.minSpeed = String(u.minSpeed).slice(0, 2)
+        if (u.car?.make && u.car?.model) car = u.car
+        if (u.followUp && !(c.width && c.height && c.diameter)) c.followUp = String(u.followUp).slice(0, 200)
+      }
+    }
+  }
+
+  // Car but no size: use our vehicle table. One factory size → go straight on.
+  let carNote = ''
+  if (car && !(c.width && c.height && c.diameter)) {
+    const cs = await carSizes(car).catch(() => ({ error: 'unknown_car' }))
+    const label = `${car.make} ${car.model}${car.year ? ` (${car.year})` : ''}`
+    if (cs.sizes?.length === 1) {
+      const s = cs.sizes[0]
+      Object.assign(c, { width: s.width, height: s.height, diameter: s.diameter })
+      if (!c.minLoadIndex && Number(s.loadIndex)) c.minLoadIndex = Number(s.loadIndex)
+      if (!c.minSpeed && s.speedIndex) c.minSpeed = s.speedIndex
+      carNote = `Für deinen ${label} habe ich ${s.width}/${s.height} R${s.diameter} genommen (Werksgröße). Bitte kurz auf dem Reifen prüfen.`
+    } else if (cs.sizes?.length > 1) {
+      return {
+        criteria: { ...c, car },
+        needs: 'carSize',
+        car: { ...car, generation: cs.generation || '', note: cs.note || '' },
+        sizes: cs.sizes,
+        message: `Für den ${label} gibt es mehrere Größen. Welche steht auf deinem Reifen?`,
+        picks: [],
+      }
+    } else {
+      c.followUp = `Zum ${label} habe ich keine sicheren Größen. Lies die Größe bitte auf der Reifenflanke ab (z. B. 205/55 R16) – oder schick mir ein Foto.`
     }
   }
 
@@ -141,19 +204,49 @@ export async function recommend(input = {}) {
     }
   }
 
-  const candidates = await findCandidates(c)
-  if (!candidates.length) {
-    return { criteria: c, needs: null, message: `Für ${c.width}/${c.height} R${c.diameter}${c.season ? ` (${SEASON_CATEGORY[c.season]})` : ''} haben wir gerade keine Angebote.`, picks: [] }
+  // No season given: take the one people buy right now, and say so.
+  let seasonAssumed = false
+  if (!c.season) {
+    c.season = seasonForDate()
+    seasonAssumed = true
   }
-  const avg = candidates.reduce((a, p) => a + p.price, 0) / candidates.length
+
+  const all = await findCandidates(c)
+  if (!all.length) {
+    return {
+      criteria: { ...c, seasonAssumed },
+      needs: null,
+      message: `Für ${c.width}/${c.height} R${c.diameter} (${SEASON_CATEGORY[c.season]}) haben wir gerade keine Angebote. Probier eine andere Saison.`,
+      picks: [],
+    }
+  }
+  const { pool: candidates, notes } = applyExtras(all, c)
+  const prices = candidates.map(p => p.price)
+  const avg = prices.reduce((a, x) => a + x, 0) / prices.length
   const picks = pickThree(candidates, c)
-  const why = await reasons(picks, avg, c)
+  const [why, match] = await Promise.all([reasons(picks, avg, c), matchScores(candidates, picks, c)])
+
+  const budgetMiss = c.budgetPer4 > 0 && !candidates.some(p => p.price * 4 <= c.budgetPer4)
+  const intro = [
+    carNote,
+    `Ich habe ${candidates.length} passende ${SEASON_CATEGORY[c.season]} in ${c.width}/${c.height} R${c.diameter} verglichen.`,
+    budgetMiss ? `Unter ${c.budgetPer4} € für 4 gibt es nichts – das sind die günstigsten Optionen.` : '',
+    ...notes,
+  ].filter(Boolean).join(' ')
+
   return {
-    criteria: c,
+    criteria: { ...c, seasonAssumed },
     needs: null,
     total: candidates.length,
-    message: `Ich habe ${candidates.length} passende Reifen verglichen. Das sind meine drei Empfehlungen:`,
-    picks: ['best_price', 'best_choice', 'premium'].filter(s => picks[s]).map(s => card(picks[s], s, why[s])),
+    summary: {
+      minPrice: Math.round(Math.min(...prices) * 100) / 100,
+      avgPrice: Math.round(avg * 100) / 100,
+      maxPrice: Math.round(Math.max(...prices) * 100) / 100,
+    },
+    message: intro,
+    picks: ['best_choice', 'best_price', 'premium']
+      .filter(s => picks[s])
+      .map(s => card(picks[s], s, why[s], { match: match[s] ?? null, ...prosCons(picks[s], avg) })),
   }
 }
 
@@ -192,7 +285,7 @@ export async function productCheck(slug) {
         : 'Eher teuer für diese Größe – prüfe die Alternativen.'
   const avg = pool.length ? pool.reduce((a, x) => a + x.price, 0) / pool.length : p.price
   return {
-    product: card(p, 'current', factsFor(p, 'current', avg).slice(0, 3).join(' · ')),
+    product: card(p, 'current', factsFor(p, 'current', avg).slice(0, 3).join(' · '), prosCons(p, avg)),
     sameSizeCount: pool.length,
     pricePosition: Math.round(rank * 100),
     trendPct,
@@ -200,8 +293,8 @@ export async function productCheck(slug) {
     timing:
       trendPct == null ? '' : trendPct <= -5 ? `Der Preis ist in 30 Tagen um ${Math.abs(trendPct)} % gefallen – guter Zeitpunkt.` : trendPct >= 5 ? `Der Preis ist in 30 Tagen um ${trendPct} % gestiegen – ein Preisalarm kann sich lohnen.` : 'Der Preis ist in den letzten 30 Tagen stabil.',
     alternatives: [
-      cheaperSimilar && card(cheaperSimilar, 'cheaper', `${(p.price - cheaperSimilar.price).toFixed(2).replace('.', ',')} € günstiger pro Reifen bei ähnlicher Nasshaftung`),
-      betterForLittleMore && card(betterForLittleMore, 'better', `Bessere Nasshaftung (${String(betterForLittleMore.wet_grip).toUpperCase()[0]}) für ${(betterForLittleMore.price - p.price).toFixed(2).replace('.', ',')} € mehr`),
+      cheaperSimilar && card(cheaperSimilar, 'cheaper', `${((p.price - cheaperSimilar.price) * 4).toFixed(2).replace('.', ',')} € günstiger für 4 Reifen bei ähnlicher Nasshaftung`, prosCons(cheaperSimilar, avg)),
+      betterForLittleMore && card(betterForLittleMore, 'better', `Bessere Nasshaftung (${String(betterForLittleMore.wet_grip).toUpperCase()[0]}) für nur ${((betterForLittleMore.price - p.price) * 4).toFixed(2).replace('.', ',')} € mehr (4 Reifen)`, prosCons(betterForLittleMore, avg)),
     ].filter(Boolean),
   }
 }
