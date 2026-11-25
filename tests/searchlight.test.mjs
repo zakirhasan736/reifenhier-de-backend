@@ -44,7 +44,7 @@ test('budget and minimum load index are respected', () => {
   const r = pickThree(withPrice(catalogue), { priority: 'balanced', budgetPer4: 260 })
   assert.ok(r.best_choice.price * 4 <= 260)
   const r2 = pickThree(withPrice([...catalogue, P('heavy', 'Hankook', 70, 'A', 'B', 69, '95', 'V')]), { minLoadIndex: 94 })
-  assert.equal(r2.best_price.slug, 'heavy')
+  assert.equal(r2.best_choice.slug, 'heavy') // the only tyre with load index 94+ is the recommendation
 })
 
 test('recommend(): quick answers → three cards with shop tokens (no AI needed)', async () => {
@@ -56,7 +56,10 @@ test('recommend(): quick answers → three cards with shop tokens (no AI needed)
   const r = await svc.recommend({ width: '205', height: '55', diameter: '16', season: 'winter', priority: 'safety' })
   assert.equal(query.merchant_product_third_category, 'Winterreifen')
   assert.equal(r.picks.length, 3)
-  assert.deepEqual(r.picks.map(p => p.slot), ['best_price', 'best_choice', 'premium'])
+  assert.deepEqual(r.picks.map(p => p.slot), ['best_choice', 'best_price', 'premium'])
+  for (const p of r.picks) assert.ok(p.match >= 55 && p.match <= 99, `match ${p.match}`)
+  assert.ok(r.picks[0].pros.length > 0)
+  assert.ok(r.summary.minPrice <= r.summary.avgPrice)
   for (const p of r.picks) {
     assert.ok(p.token.startsWith('tok-'))
     assert.ok(p.reason.length > 5)
@@ -86,4 +89,21 @@ test('vehicle lookup without a database never calls the AI', async t => {
   const result = await svc.carSizes({ make: 'VW', model: 'Golf', year: '2016' })
   assert.equal(result.error, 'unknown_car')
   assert.equal(externalFetch.mock.callCount(), 0)
+})
+
+test('recommend(): sentence with budget, brand wish and assumed season', async () => {
+  Product.find = () => ({ select: () => ({ limit: () => ({ lean: async () => catalogue }) }) })
+  const r = await svc.recommend({ text: '205 55 16 Hankook bis 300 €' })
+  assert.equal(r.criteria.budgetPer4, 300)
+  assert.equal(r.criteria.brand, 'Hankook')
+  assert.equal(r.criteria.seasonAssumed, true)
+  assert.equal(r.picks[0].slot, 'best_choice')
+  assert.match(r.picks[0].brand, /Hankook/)
+  assert.ok(r.picks[0].priceFor4 <= 300)
+})
+
+test('recommend(): a car we cannot look up asks for the size and names the car', async () => {
+  const r = await svc.recommend({ text: 'Winterreifen für VW Golf 7' })
+  assert.equal(r.needs, 'size')
+  assert.match(r.message, /VW Golf 7/)
 })
