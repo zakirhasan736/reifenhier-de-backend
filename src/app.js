@@ -1,6 +1,7 @@
 // src/app.js
 // Load env before any other local imports that may read process.env
 import './loadEnv.js'
+import { Sentry, sentryEnabled } from './instrument.js'
 // import "./api/utils/cron-job.js";
 import express from 'express';
 import cors from 'cors';
@@ -137,6 +138,15 @@ for (const root of imageRoots({ onlyExisting: false })) {
 }
 app.use('/images', express.static(path.join(process.cwd(), 'src', 'images')));
 
+// Report route errors to Sentry (no-op without SENTRY_DSN), then answer with a
+// plain 500 instead of Express's HTML stack trace.
+if (sentryEnabled) Sentry.setupExpressErrorHandler(app);
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+    console.error('[api error]', req.method, req.originalUrl, err?.message || err);
+    if (res.headersSent) return;
+    res.status(err?.status || err?.statusCode || 500).json({ message: 'Interner Fehler' });
+});
 
 
 export default app;
