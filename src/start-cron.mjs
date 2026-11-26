@@ -1,3 +1,5 @@
+// Sentry first (no-op without SENTRY_DSN) so cron job crashes are reported too
+import "./instrument.js";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
