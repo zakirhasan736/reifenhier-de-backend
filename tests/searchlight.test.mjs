@@ -107,3 +107,16 @@ test('recommend(): a car we cannot look up asks for the size and names the car',
   assert.equal(r.needs, 'size')
   assert.match(r.message, /VW Golf 7/)
 })
+
+test('cards carry the price line and the saving vs the most expensive shop', async () => {
+  const day = d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10)
+  const withTrend = catalogue.map(p => ({ ...p, price_trend: { points: [[day(50), p.cheapest_offer + 12], [day(20), p.cheapest_offer + 6], [day(3), p.cheapest_offer]] } }))
+  Product.find = () => ({ select: () => ({ limit: () => ({ lean: async () => withTrend }) }) })
+  const r = await svc.recommend({ width: '205', height: '55', diameter: '16', season: 'winter' })
+  const p = r.picks[0]
+  assert.ok(p.trend.points.length >= 3)
+  assert.ok(p.trend.pct < 0)
+  assert.equal(p.trend.isLowest, true)
+  assert.ok(p.shopSavingsPct > 0 && p.maxShopPrice > p.price)
+  assert.equal(p.shopSavingsFor4, Math.round((p.maxShopPrice - p.price) * 400) / 100)
+})

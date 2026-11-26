@@ -29,7 +29,42 @@ const SELECT = {
 function withPrice(p) {
   const offers = offersOf(p)
   const best = offers[0]
-  return { ...p, price: best?.price || toNum(p.cheapest_offer), bestOffer: best || null, offerCount: offers.length }
+  const maxPrice = offers.length ? Math.max(...offers.map(o => o.price)) : 0
+  return { ...p, price: best?.price || toNum(p.cheapest_offer), bestOffer: best || null, offerCount: offers.length, maxPrice }
+}
+
+/**
+ * Price line for a card: stored daily points of the last 60 days plus today's
+ * price, the change in % and whether today is the lowest price of that time.
+ */
+export function trendOf(p, now = new Date()) {
+  const raw = Array.isArray(p.price_trend?.points) ? p.price_trend.points : []
+  const cut = new Date(now.getTime() - 60 * 864e5).toISOString().slice(0, 10)
+  const today = now.toISOString().slice(0, 10)
+  let pts = raw
+    .filter(x => Array.isArray(x) && x.length === 2 && Number(x[1]) > 0)
+    .map(([d, v]) => [String(d).slice(0, 10), Math.round(Number(v) * 100) / 100])
+  const before = pts.filter(([d]) => d < cut).pop()
+  pts = pts.filter(([d]) => d >= cut)
+  if (before) pts.unshift([cut, before[1]])
+  if (p.price > 0 && (!pts.length || pts[pts.length - 1][0] < today)) pts.push([today, Math.round(p.price * 100) / 100])
+  if (pts.length < 2) return null
+  if (pts.length > 40) {
+    const step = (pts.length - 1) / 39
+    pts = Array.from({ length: 40 }, (_, i) => pts[Math.round(i * step)])
+  }
+  const first = pts[0][1]
+  const last = pts[pts.length - 1][1]
+  const low = Math.min(...pts.map(x => x[1]))
+  const high = Math.max(...pts.map(x => x[1]))
+  return {
+    points: pts,
+    pct: first > 0 ? Math.round(((last - first) / first) * 100) : 0,
+    low,
+    high,
+    isLowest: last <= low + 0.005,
+    days: Math.max(1, Math.round((Date.parse(pts[pts.length - 1][0]) - Date.parse(pts[0][0])) / 864e5)),
+  }
 }
 
 /** Public card shape for the frontend (no internal fields). */
@@ -56,6 +91,11 @@ export function card(p, slot, reason, extra = {}) {
     vendorId: o.vendor_id || '',
     token: o.affiliate_product_cloak_url || '',
     inStock: o.in_stock !== false,
+    // how much less than the most expensive shop for the same tyre
+    maxShopPrice: p.maxPrice > p.price ? Math.round(p.maxPrice * 100) / 100 : null,
+    shopSavingsPct: p.maxPrice > p.price ? Math.round(((p.maxPrice - p.price) / p.maxPrice) * 100) : 0,
+    shopSavingsFor4: p.maxPrice > p.price ? Math.round((p.maxPrice - p.price) * 4 * 100) / 100 : 0,
+    trend: trendOf(p),
     rating: Number(p.average_rating) > 0 && Number(p.review_count) > 0 ? Math.round(Number(p.average_rating) * 10) / 10 : null,
     reviews: Number(p.review_count) || 0,
     reason: reason || '',
