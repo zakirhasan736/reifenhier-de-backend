@@ -3,7 +3,7 @@
  * - Downloads AWIN_CSV_URL (ZIP) and imports into MongoDB
  * - Prevents overlapping runs
  * - runs every 3 h (AWIN_IMPORT_INTERVAL_MIN), counted from the last start
- * - shop-page prices: see cron-job-two.js (every 5 h)
+ * - last step after every import: updateAllShopPrices.js (every product)
  */
 
 import cron from "node-cron";
@@ -85,7 +85,7 @@ function runStep(script) {
 }
 function runAfterImportJobs() {
     if (afterImportRunning) {
-        console.log("[STEP 2/3] Previous scraper/image sync still running — skipping this time.");
+        console.log("[STEP 2/4] Previous scraper/image/price update still running — skipping this time.");
         return;
     }
     afterImportRunning = true;
@@ -96,6 +96,10 @@ function runAfterImportJobs() {
         console.log("🖼  [STEP 3] Product image sync (background)...");
         const c2 = await runStep("src/api/utils/uploadProductImages.js");
         console.log(`✅ [STEP 3] Image sync finished (exit ${c2}).`);
+        // Last step of every import: shop-page price of every offer, all products.
+        console.log("💶 [STEP 4] Shop prices for the full catalog (last step)...");
+        const c3 = await runStep("src/api/utils/updateAllShopPrices.js");
+        console.log(`✅ [STEP 4] Shop prices finished (exit ${c3}).`);
     })().finally(() => {
         afterImportRunning = false;
     });
@@ -227,7 +231,7 @@ async function attemptCsvImport() {
             });
         }, 10000);
 
-        console.log("🎉 [CRON] AWIN import + scraper cycle completed.");
+        console.log("🎉 [CRON] AWIN import finished. Scraper, images, then shop prices for every product run as the last step.");
     } catch (err) {
         console.error("[CRON ERROR]", err.message);
         setTimeout(attemptCsvImport, RETRY_DELAY_MS);

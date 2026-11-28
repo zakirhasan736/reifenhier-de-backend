@@ -23,6 +23,7 @@
     "reifen:prices": "node src/api/utils/syncReifenComPrices.js",
     "reifen:check": "node scripts/check-reifen-com-prices.mjs",
     "prices:sync": "node scripts/price-sync-now.mjs",
+    "prices:all": "node src/api/utils/updateAllShopPrices.js",
     "prices:status": "node scripts/price-sync-now.mjs --status",
     "giga:sync": "node scripts/giga-de-sync.mjs",
     "newsletter:sheet": "node scripts/sync-newsletter-sheet.mjs",

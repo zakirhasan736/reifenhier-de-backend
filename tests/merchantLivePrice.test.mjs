@@ -8,8 +8,8 @@ const live = (o = {}) => ({ vendor_id: "1", aw_product_id: "A", price: 59.9, awi
 test("fresh shop-page price stays while the feed is unchanged", () => {
   assert.equal(keepMerchantPrice(live(), 64.5), true);
 });
-test("feed got a new price → feed wins", () => {
-  assert.equal(keepMerchantPrice(live(), 61.0), false);
+test("fresh shop-page price stays even when the feed number moved", () => {
+  assert.equal(keepMerchantPrice(live(), 61.0), true);
 });
 test("page price older than 8 h → feed wins", () => {
   assert.equal(isFreshMerchantPrice(live({ merchant_price_checked_at: h(9) })), false);
@@ -17,6 +17,11 @@ test("page price older than 8 h → feed wins", () => {
 });
 test("plain AWIN offers are never touched", () => {
   assert.equal(keepMerchantPrice({ price: 64.5, price_source: "awin" }, 64.5), false);
+});
+test("full import: a moved feed price is recorded, the page price stays", () => {
+  const fromFeed = [{ vendor_id: "1", aw_product_id: "A", price: 61 }];
+  assert.equal(keepMerchantPrices([live()], fromFeed), 1);
+  assert.deepEqual([fromFeed[0].price, fromFeed[0].awin_price, fromFeed[0].price_source], [59.9, 61, "merchant-live"]);
 });
 test("full import: only the matching offer keeps its page price", () => {
   const existing = [live(), { vendor_id: "2", aw_product_id: "B", price: 70, price_source: "awin" }];

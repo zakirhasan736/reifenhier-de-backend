@@ -43,10 +43,31 @@ function collectJsonLdProducts($) {
   return products;
 }
 
+/**
+ * reifen.com puts the tyre price on the product detail (`data-dl-price`)
+ * and uses itemprop="price" for accessories (valves, etc.). The buy box
+ * says "Nicht verfügbar" when the tyre itself cannot be ordered.
+ */
+function parseReifenComDetail($) {
+  const el = $("[data-dl-productdetailview][data-dl-price]").first();
+  if (!el.length) return null;
+  const price = parsePrice(el.attr("data-dl-price"));
+  if (!(price > 0)) return null;
+  const buy = $(".gridl-price .button").first().text().replace(/\s+/g, " ");
+  let inStock;
+  if (/nicht\s*verfügbar|ausverkauft/i.test(buy)) inStock = false;
+  else if (/warenkorb/i.test(buy)) inStock = true;
+  return { price, inStock, source: "product-detail" };
+}
+
 /** @returns {{ price?: number, inStock?: boolean, source?: string, reason?: string }} */
 export function parseReifenComPage(html) {
   if (!html || typeof html !== "string") return { reason: "empty page" };
   const $ = cheerio.load(html);
+
+  // 0) reifen.com product detail. Must win over accessory microdata.
+  const detail = parseReifenComDetail($);
+  if (detail) return detail;
 
   // 1) JSON-LD: exactly one Product with one EUR offer price.
   const products = collectJsonLdProducts($);

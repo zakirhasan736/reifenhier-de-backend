@@ -8,15 +8,13 @@
  * not put the older feed price back while that page price is fresh:
  *
  *   keep the page price  ⇔  checked within MERCHANT_LIVE_PRICE_TTL_HOURS
- *                           AND the feed still has the same price as when we
- *                           checked (the feed itself has not changed since).
  *
- * As soon as the feed gets a new price, or the page price gets old, the feed
- * price wins again until the next page check (every 5 h).
+ * The shop page is what the customer pays. A newer AWIN feed row does not
+ * replace it: feeds lag the shop, which is the mismatch we are fixing.
+ * Once the page price is older than the TTL, the feed price is shown again
+ * until the next page check.
  */
 export const MERCHANT_LIVE_TTL_MS = Number(process.env.MERCHANT_LIVE_PRICE_TTL_HOURS || 8) * 3600 * 1000;
-
-const near = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
 
 export function isFreshMerchantPrice(offer, now = Date.now()) {
     if (!offer || offer.price_source !== "merchant-live") return false;
@@ -24,9 +22,13 @@ export function isFreshMerchantPrice(offer, now = Date.now()) {
     return !!at && now - at <= MERCHANT_LIVE_TTL_MS && Number(offer.price) > 0;
 }
 
-/** Should the stored page price stay, given the price the AWIN feed now has? */
+/**
+ * Should the stored page price stay, given the price the AWIN feed now has?
+ * A fresh page price stays even when the feed number moved. `feedPrice` is
+ * recorded separately as awin_price by the caller.
+ */
 export function keepMerchantPrice(oldOffer, feedPrice) {
-    return isFreshMerchantPrice(oldOffer) && Number(oldOffer.awin_price) > 0 && near(oldOffer.awin_price, feedPrice);
+    return isFreshMerchantPrice(oldOffer) && Number(feedPrice) > 0;
 }
 
 const sameOffer = (a, b) =>

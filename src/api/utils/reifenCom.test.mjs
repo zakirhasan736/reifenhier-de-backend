@@ -31,6 +31,35 @@ test('microdata main product, ignores nested cross-sell', () => {
 test('no structured price → undefined, never a guess', () => {
   assert.equal(parseReifenComPage('<div class="price">99,00 €</div><span>Versand 4,99 €</span>').price, undefined)
 })
+test('reifen.de selling price, not the crossed-out price', () => {
+  const html = `<section class="product" itemscope itemtype="https://schema.org/Product">
+    <div class="product-price-higher"><span>64,29 €</span></div>
+    <div class="product-price-lower" itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+      <span itemprop="price" content="53.08">53,08 €</span>
+      <link itemprop="availability" href="https://schema.org/InStock"/>
+    </div>
+  </section>`
+  const r = parseReifenComPage(html)
+  assert.equal(r.price, 53.08)
+  assert.equal(r.inStock, true)
+  assert.equal(r.source, 'microdata')
+})
+test('reifen.com detail price beats accessory microdata, and out of stock is read', () => {
+  const html = `<div data-dl-productdetailview data-dl-price="56.08"></div>
+    <div class="gridl-price"><div class="button -pseudogrey">Nicht verfügbar</div></div>
+    <div itemscope itemtype="https://schema.org/Product"><meta itemprop="price" content="10.03"></div>`
+  const r = parseReifenComPage(html)
+  assert.equal(r.price, 56.08)
+  assert.equal(r.inStock, false)
+  assert.equal(r.source, 'product-detail')
+})
+test('reifen.com in stock when the buy button is the cart', () => {
+  const html = `<div data-dl-productdetailview data-dl-price="56,08"></div>
+    <div class="gridl-price"><button class="button">In den Warenkorb</button></div>`
+  const r = parseReifenComPage(html)
+  assert.equal(r.price, 56.08)
+  assert.equal(r.inStock, true)
+})
 test('reifen.com name matching', () => {
   for (const n of ['reifen.com', 'Reifen.com', ' REIFEN.COM ', 'reifen.com DE']) assert.ok(rc.isReifenComName(n), n)
   for (const n of ['reifen DE', 'reifendirekt', 'Tirendo', '']) assert.ok(!rc.isReifenComName(n), n)

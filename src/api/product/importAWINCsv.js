@@ -709,7 +709,8 @@ export async function importAWINCsv(filePath) {
                         // reverting it to the older AWIN feed price. The hash above stays
                         // feed-only, so feed changes are still detected.
                         // Same for other shops: a fresh price read from the shop's own page
-                        // (refreshPricesFromMerchants, every 5 h) stays until the feed changes.
+                        // (refreshPricesFromMerchants, every 5 h) stays until it goes stale.
+                        // A newer feed row must not put the old feed price back.
                         if (existing?.offers?.length) {
                             const keptReifen = keepLiveReifenPrice(existing.offers, newProd.offers);
                             const keptShops = keepMerchantPrices(existing.offers, newProd.offers);

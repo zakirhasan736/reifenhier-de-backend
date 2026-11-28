@@ -140,7 +140,8 @@ async function processGroupBatch(eanToRowsMap, counters) {
                 isReifenComOffer(target) &&
                 target.price_source === "reifen.com-live" &&
                 liveAt && Date.now() - liveAt <= LIVE_PRICE_TTL_MS;
-            // A fresh price from the shop's own page stays while the feed is unchanged.
+            // A fresh price from the shop's own page stays. The feed number is
+            // kept in awin_price so the next page check can compare against it.
             const keepShopPrice = !keepLive && keepMerchantPrice(target, rec.price);
             if (keepLive || keepShopPrice) {
                 target.awin_price = rec.price;

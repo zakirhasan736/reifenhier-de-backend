@@ -2,10 +2,8 @@
 // Price cycle — every PRICE_CYCLE_INTERVAL_HOURS (default 5 h), separate from
 // the AWIN product import (cron-job.js, every 3 h).
 //
-//   1) purgeUnavailableOffers.js     drop offers whose shop page is gone
-//   2) refreshPricesFromMerchants.js read the price on each shop's own page and
-//                                    show it (AWIN feeds lag the shop)
-//   3) syncReifenComPrices.js        reifen.com live prices
+//   1) purgeUnavailableOffers.js  drop offers whose shop page is gone
+//   2) updateAllShopPrices.js     last step: every offer on every product
 //
 // Runs one job after another (never in parallel), waits while the full AWIN
 // import is writing, and stores its last start in ImportMeta {source:"PRICES"}
@@ -29,11 +27,12 @@ const SOURCE = "PRICES";
 
 const DEFAULT_JOBS = [
     path.join(__dirname, "purgeUnavailableOffers.js"),
-    path.join(__dirname, "refreshPricesFromMerchants.js"),
-    ...(String(process.env.REIFEN_SYNC_ENABLED ?? "true") === "true" ? [path.join(__dirname, "syncReifenComPrices.js")] : []),
     // The AWIN feed prices themselves come with the 3-hourly full import. Set
-    // PRICE_CYCLE_INCLUDE_FEED=1 to also run the quick AWIN price update here.
+    // PRICE_CYCLE_INCLUDE_FEED=1 to also run the quick AWIN price update here,
+    // before the shop-page pass so the page price stays the last write.
     ...(process.env.PRICE_CYCLE_INCLUDE_FEED === "1" ? [path.join(__dirname, "updatePricesIncremental.js")] : []),
+    // Last step: selling price from every vendor page, every product.
+    path.join(__dirname, "updateAllShopPrices.js"),
 ];
 
 const JOBS = (process.env.CRON_JOBS || DEFAULT_JOBS.join(","))

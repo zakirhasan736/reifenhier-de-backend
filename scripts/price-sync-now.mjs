@@ -3,7 +3,7 @@
  * Update prices NOW (same jobs as the 5-hourly price cycle), or show the schedule.
  *
  *   node scripts/price-sync-now.mjs                 # all price jobs now
- *   node scripts/price-sync-now.mjs --only shops    # only: shop-page prices (all shops except reifen.com)
+ *   node scripts/price-sync-now.mjs --only shops    # every vendor price on every product
  *   node scripts/price-sync-now.mjs --only reifen   # only: reifen.com live prices
  *   node scripts/price-sync-now.mjs --only purge    # only: remove offers whose shop page is gone
  *   node scripts/price-sync-now.mjs --dry-run       # check only, write nothing
@@ -33,7 +33,7 @@ const PRICE_H = Number(process.env.PRICE_CYCLE_INTERVAL_HOURS || 5);
 
 const JOBS = {
     purge: "src/api/utils/purgeUnavailableOffers.js",
-    shops: "src/api/utils/refreshPricesFromMerchants.js",
+    shops: "src/api/utils/updateAllShopPrices.js",
     reifen: "src/api/utils/syncReifenComPrices.js",
 };
 
@@ -121,7 +121,9 @@ async function main() {
         process.exit(3);
     }
 
-    const list = only ? [JOBS[only]].filter(Boolean) : Object.values(JOBS);
+    // The full catalog script already includes reifen.com. --only reifen
+    // still runs the reifen.com-only sync.
+    const list = only ? [JOBS[only]].filter(Boolean) : [JOBS.purge, JOBS.shops];
     if (!list.length) {
         console.log(`Unknown --only "${only}". Use: ${Object.keys(JOBS).join(", ")}`);
         process.exit(2);

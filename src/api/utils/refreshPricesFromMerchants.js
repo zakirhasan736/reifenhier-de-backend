@@ -8,6 +8,7 @@ import { computeOfferStats } from "./offerPricing.js";
 import { isReifenComOffer } from "./reifenCom.js";
 import { applyShopPrice } from "./merchantLivePrice.js";
 import { isGigaVendor } from "./gigaShop.js";
+import { parseReifenComPage } from "./reifenComLivePrice.js";
 
 dotenv.config();
 
@@ -29,39 +30,11 @@ const DRY_RUN = String(process.env.PRICE_REFRESH_DRY_RUN || "false").toLowerCase
 const APPLY = String(process.env.PRICE_REFRESH_APPLY || "true").toLowerCase() === "true";
 // Flag offers whose merchant price differs from AWIN by more than this
 const MISMATCH_RATIO = Number(process.env.PRICE_MISMATCH_RATIO || 0.03);
-// Never apply a merchant price that differs by more than this (likely wrong scrape)
-const MAX_APPLY_RATIO = Number(process.env.PRICE_REFRESH_MAX_APPLY_RATIO || 0.25);
-
-/* ------------------------------- Utilities ------------------------------ */
-function parseSafeNumber(val) {
-    if (val === null || val === undefined) return undefined;
-    const s = String(val).trim().replace(/\s+/g, " ");
-    if (!s) return undefined;
-    // normalize common formats: "1.234,56" or "1,234.56" or "1234,56"
-    const dot = (s.match(/\./g) || []).length;
-    const comma = (s.match(/,/g) || []).length;
-
-    let normalized = s;
-    // If both separators exist, assume the last one is decimal
-    if (dot && comma) {
-        if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
-            // dots thousand, comma decimal
-            normalized = s.replace(/\./g, "").replace(",", ".");
-        } else {
-            // commas thousand, dot decimal
-            normalized = s.replace(/,/g, "");
-        }
-    } else if (comma && !dot) {
-        // only comma present -> decimal comma
-        normalized = s.replace(/\./g, "").replace(",", ".");
-    } else {
-        // only dot or none -> already decimal dot or integer
-        normalized = s.replace(/,/g, "");
-    }
-
-    const num = Number(normalized.replace(/[^\d.]/g, ""));
-    return isFinite(num) ? num : undefined;
-}
+// Never apply a merchant price that differs by more than this (likely a wrong
+// scrape, e.g. an accessory at 10 € on a 55 € tyre). Real shop moves are often
+// larger than a few percent — the Atlas example went from 44 € in the feed to
+// 53 € on reifen.de — so the default allows up to 40 %.
+const MAX_APPLY_RATIO = Number(process.env.PRICE_REFRESH_MAX_APPLY_RATIO || 0.4);
 
 /* ----------------------------- Price scraping --------------------------- */
 /**
@@ -76,49 +49,18 @@ function parseSafeNumber(val) {
 async function fetchLivePrice(url) {
     const html = await fetchHtml(url);
     if (!html) return undefined;
-    return mainProductPrice(html);
+    // Same reader as the reifen.com sync: JSON-LD, microdata (reifen.de),
+    // OpenGraph, and the reifen.com product-detail price. Returns undefined
+    // when the page does not name one selling price.
+    const parsed = parseReifenComPage(html);
+    if (!(parsed.price > 0)) return undefined;
+    return parsed;
 }
 
+/** Selling price of the main product, or undefined when the page is ambiguous. */
 export function mainProductPrice(html) {
-    // 1) JSON-LD: exactly one Product, its own Offer(s), one distinct price
-    const products = [];
-    const rx = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-    let m;
-    while ((m = rx.exec(html))) {
-        try {
-            const stack = [JSON.parse(m[1].trim())];
-            while (stack.length) {
-                const n = stack.pop();
-                if (!n || typeof n !== "object") continue;
-                if (Array.isArray(n)) { stack.push(...n); continue; }
-                if (n["@graph"]) stack.push(n["@graph"]);
-                const types = [].concat(n["@type"] || []).map(t => String(t).toLowerCase());
-                if (types.includes("product")) products.push(n);
-            }
-        } catch { /* invalid JSON-LD */ }
-    }
-    if (products.length === 1) {
-        const prices = new Set();
-        for (const o of [].concat(products[0].offers || [])) {
-            if (!o) continue;
-            const t = String(o["@type"] || "").toLowerCase();
-            const cur = String(o.priceCurrency || "EUR").toUpperCase();
-            if (cur !== "EUR") continue;
-            if (t === "aggregateoffer") continue; // marketplace range, not a price
-            const p = parseSafeNumber(o.price ?? o.priceSpecification?.price);
-            if (p > 0) prices.add(+p.toFixed(2));
-        }
-        if (prices.size === 1) return [...prices][0];
-        if (prices.size > 1) return undefined;
-    }
-
-    // 2) OpenGraph product price (one per page by definition)
-    const og = [...html.matchAll(/<meta[^>]+property=["'](?:product|og):price:amount["'][^>]*content=["']([^"']+)["']/gi)]
-        .map(x => parseSafeNumber(x[1]))
-        .filter(p => p > 0);
-    if (og.length && new Set(og).size === 1) return og[0];
-
-    return undefined;
+    const parsed = parseReifenComPage(html);
+    return parsed.price > 0 ? parsed.price : undefined;
 }
 
 async function fetchHtml(url) {
@@ -158,6 +100,15 @@ const baseFilter = {
     ],
 };
 
+function argValue(flag) {
+    const i = process.argv.indexOf(flag);
+    return i > -1 ? process.argv[i + 1] : "";
+}
+const ONLY_SLUG = argValue("--slug");
+const ONLY_EAN = argValue("--ean");
+// The full-catalog script sets this so reifen.com is updated in the same pass.
+const INCLUDE_REIFEN = String(process.env.PRICE_REFRESH_INCLUDE_REIFEN || "").toLowerCase() === "true";
+
 const projection = {
     _id: 1,
     ean: 1,
@@ -178,12 +129,19 @@ const projection = {
     import_hash: 1,
 };
 
+function candidateFilter() {
+    const filter = { ...baseFilter };
+    if (ONLY_SLUG) filter.slug = ONLY_SLUG;
+    if (ONLY_EAN) filter.ean = ONLY_EAN;
+    return filter;
+}
+
 async function countCandidates() {
-    return LiveProduct.countDocuments(baseFilter);
+    return LiveProduct.countDocuments(candidateFilter());
 }
 
 async function fetchBatch(skip, limit) {
-    return LiveProduct.find(baseFilter, projection)
+    return LiveProduct.find(candidateFilter(), projection)
         .sort({ _id: 1 })
         .skip(skip)
         .limit(limit)
@@ -199,28 +157,32 @@ async function processProduct(prod) {
     const offers = prod.offers.map(o => ({ ...o })); // shallow clone
     const limitOffer = pLimit(OFFER_CONCURRENCY);
     let priceChanges = 0;
+    let stockChanges = 0;
     let checked = 0;
 
-    // Verify each vendor page against the AWIN price. The AWIN feed is the
-    // price AWIN and the shop agree on, so by default we only RECORD the
-    // merchant price; PRICE_REFRESH_APPLY=true lets small, plausible
-    // differences (feed lag) update the shown price.
+    // Read the selling price on each shop's own page and show that price.
+    // The AWIN feed often lags the shop (reifen.de was 44,05 € in the feed
+    // and 53,08 € on the page). PRICE_REFRESH_APPLY=false only records it.
     await Promise.all(
         offers.map((offer) =>
             limitOffer(async () => {
-                // reifen.com has its own live sync (syncReifenComPrices.js).
-                if (isReifenComOffer(offer)) return;
+                // Skipped unless this is the full-catalog run (updateAllShopPrices.js).
+                if (!INCLUDE_REIFEN && isReifenComOffer(offer)) return;
                 // giga-reifen.de answers 403. Prices for that shop come from
                 // the German AWIN feed: npm run giga:sync
                 if (isGigaVendor(offer)) return;
                 const url = String(offer.merchant_deep_link || "").trim();
                 if (!/^https?:\/\//i.test(url)) return;
 
-                const livePrice = await fetchLivePrice(url);
-                if (!(livePrice > 0)) return;
+                const live = await fetchLivePrice(url);
+                if (!(live?.price > 0)) return;
                 checked++;
 
-                if (applyShopPrice(offer, livePrice, { apply: APPLY, mismatchRatio: MISMATCH_RATIO, maxApplyRatio: MAX_APPLY_RATIO })) priceChanges++;
+                if (live.inStock !== undefined && (offer.in_stock !== false) !== live.inStock) {
+                    offer.in_stock = live.inStock;
+                    stockChanges++;
+                }
+                if (applyShopPrice(offer, live.price, { apply: APPLY, mismatchRatio: MISMATCH_RATIO, maxApplyRatio: MAX_APPLY_RATIO })) priceChanges++;
             })
         )
     );
@@ -242,7 +204,7 @@ async function processProduct(prod) {
     // were reading the shop pages (it would otherwise be reverted).
     const res = await LiveProduct.updateOne({ _id: prod._id, import_hash: prod.import_hash ?? null }, { $set: update });
     if (!res.matchedCount) return { changed: false, raced: true };
-    return { changed: true, priceChanges, update, dryRun: false };
+    return { changed: true, priceChanges, stockChanges, update, dryRun: false };
 }
 
 async function main() {
