@@ -28,6 +28,7 @@ import searchlightRoutes from './api/searchlight/searchlight.routes.js';
 import { liveTraffic } from './api/traffic/liveTraffic.js';
 import trafficRoutes from './api/traffic/traffic.routes.js';
 import adminAlertsRoutes from './api/adminAlerts/adminAlerts.routes.js';
+import opsRoutes from './api/ops/ops.routes.js';
 
 import { router as fitmentRoutes, adminRouter as fitmentAdminRoutes } from './api/fitment/routes.js';
 
@@ -110,6 +111,7 @@ app.use('/', affiliateRouter);
 app.use('/api/v1', analyticsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/admin-alerts', adminAlertsRoutes);
+app.use('/api/ops', opsRoutes);
 app.get('/api/live-traffic', liveTraffic);
 app.use('/api/traffic', trafficRoutes);
 app.use('/api/fitment', fitmentRoutes);

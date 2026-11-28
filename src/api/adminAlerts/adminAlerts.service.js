@@ -13,7 +13,7 @@ import Click from '../../models/click.js'
 import { sendPushToSubscription } from '../push/push.service.js'
 
 const SITE_URL = (process.env.FRONTEND_URL || 'https://www.reifexa.de').replace(/\/$/, '')
-const ALERTS_PAGE = `${SITE_URL}/admin-alerts`
+const ALERTS_PAGE = `${SITE_URL}/ops`
 
 function money(n, currency = 'EUR') {
   const v = Number(n)

@@ -5,14 +5,17 @@ import { Sentry } from './instrument.js'
 import app from './app.js'
 import { connectDB } from './config/db.js'
 import { ensureLeadTabs } from './api/utils/googleSheetLeads.js'
+import { ensureTempAdmin } from './api/ops/ensureTempAdmin.js'
 
 const PORT = Number(process.env.PORT) || 8004
 const HOST = process.env.HOST || '127.0.0.1'
 
-connectDB().catch((err) => {
-  console.error('❌ MongoDB bootstrap failed:', err?.message || err)
-  Sentry.captureException(err)
-})
+connectDB()
+  .then((ok) => { if (ok) return ensureTempAdmin() })
+  .catch((err) => {
+    console.error('❌ MongoDB bootstrap failed:', err?.message || err)
+    Sentry.captureException(err)
+  })
 
 // Promise errors nobody awaited: log and report instead of losing them.
 process.on('unhandledRejection', (reason) => {
