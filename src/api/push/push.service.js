@@ -25,7 +25,7 @@ export function getVapidPublicKey() {
  * Send a web push to one browser subscription.
  * Removes dead endpoints (410/404).
  */
-export async function sendPushToSubscription(subDoc, payload) {
+export async function sendPushToSubscription(subDoc, payload, { urgency = 'normal' } = {}) {
   if (!ensureVapid()) return { ok: false, reason: 'no_vapid' }
 
   const subscription = {
@@ -39,7 +39,7 @@ export async function sendPushToSubscription(subDoc, payload) {
   try {
     await webpush.sendNotification(subscription, JSON.stringify(payload), {
       TTL: 60 * 60 * 12,
-      urgency: 'normal',
+      urgency,
     })
     return { ok: true }
   } catch (err) {

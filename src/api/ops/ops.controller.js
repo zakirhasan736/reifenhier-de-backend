@@ -10,6 +10,7 @@ import AdminPushSubscription from '../../models/adminPushSubscription.js';
 import FeaturedSettings from '../../models/FeaturedSettings.js';
 import { getLockState } from '../utils/importLock.js';
 import { sendAdminPush } from '../adminAlerts/adminAlerts.service.js';
+import { publishOpsEvent, subscribeOpsEvents } from './liveFeed.js';
 
 const SEASONS = ['Sommerreifen', 'Winterreifen', 'Ganzjahresreifen'];
 
@@ -328,14 +329,61 @@ export async function unsubscribePush(req, res) {
 }
 
 export async function testPush(_req, res) {
-    const r = await sendAdminPush('test', {
-        title: 'Reifexa Ops',
-        body: 'Push is on. New sales and transaction updates will show up here.',
-        tag: `rx-ops-test-${Date.now()}`,
+    const tag = `rx-ops-test-${Date.now()}`;
+    const notice = {
+        title: 'Test · reifen DE',
+        body: 'Provision 4,20 € · Umsatz 53,08 €',
+        tag,
+        transactionId: tag,
+        vendor: 'reifen DE',
+        commission: '4,20 €',
+        saleAmount: '53,08 €',
         kind: 'admin_test',
+        sound: true,
         url: `${(process.env.FRONTEND_URL || 'https://www.reifexa.de').replace(/\/$/, '')}/ops`,
-    });
+    };
+    publishOpsEvent({ type: 'sale', ...notice, status: 'test' });
+    const r = await sendAdminPush('test', notice);
     res.json(r);
+}
+
+/** Live sale stream for the open desk. One event per new sale or status change. */
+export function stream(req, res) {
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+    let closed = false;
+    let ping = null;
+    const unsubscribeHolder = { fn: () => undefined };
+    const close = () => {
+        if (closed) return;
+        closed = true;
+        if (ping) clearInterval(ping);
+        unsubscribeHolder.fn();
+    };
+    const write = (event) => {
+        if (closed) return;
+        try {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+        } catch {
+            close();
+        }
+    };
+    write({ type: 'hello' });
+    unsubscribeHolder.fn = subscribeOpsEvents(write);
+    ping = setInterval(() => {
+        if (closed) return;
+        try {
+            res.write(': ping\n\n');
+        } catch {
+            close();
+        }
+    }, 20000);
+    req.on('close', close);
+    res.on('close', close);
 }
 
 export async function pushStatus(_req, res) {

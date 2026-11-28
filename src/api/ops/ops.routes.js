@@ -14,11 +14,13 @@ import {
     pushStatus,
     homepageSession,
     updateHomepageSession,
+    stream,
 } from './ops.controller.js';
 
 const router = express.Router();
 
 router.use(requireAdmin);
+router.get('/stream', stream);
 router.get('/overview', overview);
 router.get('/series', series);
 router.get('/transactions', transactions);

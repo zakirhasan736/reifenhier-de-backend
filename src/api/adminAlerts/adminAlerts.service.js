@@ -11,6 +11,7 @@ import AdminPushSubscription from '../../models/adminPushSubscription.js'
 import AwinTransaction from '../../models/awinTransaction.js'
 import Click from '../../models/click.js'
 import { sendPushToSubscription } from '../push/push.service.js'
+import { publishOpsEvent } from '../ops/liveFeed.js'
 
 const SITE_URL = (process.env.FRONTEND_URL || 'https://www.reifexa.de').replace(/\/$/, '')
 const ALERTS_PAGE = `${SITE_URL}/ops`
@@ -35,6 +36,7 @@ export async function sendAdminPush(kind, payload) {
   let sent = 0
   let failed = 0
   let reason = ''
+  const urgency = kind === 'sale' || kind === 'test' ? 'high' : 'normal'
   for (const sub of subs) {
     // push.service deletes gone endpoints from the customer collection only,
     // so clean ours up here too.
@@ -42,8 +44,9 @@ export async function sendAdminPush(kind, payload) {
       icon: `${SITE_URL}/images/favicon.png`,
       badge: `${SITE_URL}/images/favicon.png`,
       url: ALERTS_PAGE,
+      sound: true,
       ...payload,
-    })
+    }, { urgency })
     if (r.ok) sent += 1
     else {
       failed += 1
@@ -118,13 +121,34 @@ export async function recordAwinTransaction(tx, source, { silent = false } = {})
   )
 
   const shop = merchantName || `Händler ${tx.merchantId || '?'}`
+  const currency = tx.currency || existing?.currency || 'EUR'
+  const commissionText = money(tx.commission ?? existing?.commission, currency)
+  const amountText = money(tx.saleAmount ?? existing?.saleAmount, currency)
   if (!existing) {
     if (silent) return { stored: true, isNew: true }
-    await sendAdminPush('sale', {
-      title: `💰 Neuer Verkauf bei ${shop}`,
-      body: `Umsatz ${money(tx.saleAmount, tx.currency)} · Provision ${money(tx.commission, tx.currency)}${tx.clickRef ? ` · ${tx.clickRef}` : ''}`,
-      tag: `rx-sale-${tx.transactionId}`,
+    const title = `Neuer Verkauf · ${shop}`
+    const body = `Provision ${commissionText} · Umsatz ${amountText}`
+    publishOpsEvent({
+      type: 'sale',
+      transactionId: tx.transactionId,
+      vendor: shop,
+      commission: commissionText,
+      amount: amountText,
+      status: 'new',
+      title,
+      body,
       kind: 'admin_sale',
+    })
+    await sendAdminPush('sale', {
+      title,
+      body,
+      tag: `rx-sale-${tx.transactionId}`,
+      transactionId: tx.transactionId,
+      vendor: shop,
+      commission: commissionText,
+      saleAmount: amountText,
+      kind: 'admin_sale',
+      sound: true,
     })
     await AwinTransaction.updateOne({ transactionId: tx.transactionId }, { $set: { notifiedAt: new Date() } })
     return { stored: true, isNew: true }
@@ -133,11 +157,29 @@ export async function recordAwinTransaction(tx, source, { silent = false } = {})
   const newStatus = String(tx.status || '').toLowerCase()
   const oldStatus = String(existing.status || '').toLowerCase()
   if (!silent && newStatus && newStatus !== oldStatus && ['approved', 'declined'].includes(newStatus)) {
-    await sendAdminPush('sale', {
-      title: newStatus === 'approved' ? `✅ Provision bestätigt – ${shop}` : `❌ Verkauf storniert – ${shop}`,
-      body: `Provision ${money(tx.commission ?? existing.commission, tx.currency || existing.currency)} · Transaktion ${tx.transactionId}`,
-      tag: `rx-sale-status-${tx.transactionId}`,
+    const title = newStatus === 'approved' ? `Provision bestätigt · ${shop}` : `Verkauf storniert · ${shop}`
+    const body = `Provision ${commissionText} · ${shop}`
+    publishOpsEvent({
+      type: 'status',
+      transactionId: tx.transactionId,
+      vendor: shop,
+      commission: commissionText,
+      amount: amountText,
+      status: newStatus,
+      title,
+      body,
       kind: 'admin_sale_status',
+    })
+    await sendAdminPush('sale', {
+      title,
+      body,
+      tag: `rx-sale-status-${tx.transactionId}-${newStatus}`,
+      transactionId: `${tx.transactionId}-${newStatus}`,
+      vendor: shop,
+      commission: commissionText,
+      saleAmount: amountText,
+      kind: 'admin_sale_status',
+      sound: true,
     })
     await AwinTransaction.updateOne({ transactionId: tx.transactionId }, { $set: { statusNotifiedAt: new Date() } })
   }
