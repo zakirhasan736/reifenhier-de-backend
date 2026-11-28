@@ -33,6 +33,8 @@ export async function sendAdminPush(kind, payload) {
 
   const subs = await AdminPushSubscription.find(filter).lean()
   let sent = 0
+  let failed = 0
+  let reason = ''
   for (const sub of subs) {
     // push.service deletes gone endpoints from the customer collection only,
     // so clean ours up here too.
@@ -43,11 +45,15 @@ export async function sendAdminPush(kind, payload) {
       ...payload,
     })
     if (r.ok) sent += 1
-    else if (r.reason === 'gone') {
-      await AdminPushSubscription.deleteOne({ endpoint: sub.endpoint }).catch(() => {})
+    else {
+      failed += 1
+      reason = r.reason || reason
+      if (r.reason === 'gone') {
+        await AdminPushSubscription.deleteOne({ endpoint: sub.endpoint }).catch(() => {})
+      }
     }
   }
-  return { sent, total: subs.length }
+  return { sent, failed, total: subs.length, reason }
 }
 
 // ── Click-out alerts ─────────────────────────────────────────────────────
